@@ -1,0 +1,6 @@
+{
+  "name": "Tontine Pro",
+  "description": "Application de tontine moderne et sécurisée avec épargne par objectifs, parrainage et anonymat complet.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
