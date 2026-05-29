@@ -3,8 +3,42 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import Database from "better-sqlite3";
 import cors from "cors";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import fs from "fs";
+import os from "os";
 
-const db = new Database("tontine.db");
+const sourceDbPath = path.join(process.cwd(), "tontine.db");
+const targetDbPath = path.join(os.tmpdir(), "tontine.db");
+
+if (fs.existsSync(sourceDbPath) && !fs.existsSync(targetDbPath)) {
+  try {
+    fs.copyFileSync(sourceDbPath, targetDbPath);
+    console.log("Found existing tontine.db at root, copied to writable /tmp location.");
+  } catch (copyErr) {
+    console.error("Could not copy tontine.db to writeable directory:", copyErr);
+  }
+}
+
+const db = new Database(targetDbPath);
+
+const JWT_SECRET = process.env.JWT_SECRET || "tontine-pro-secret-key-123456";
+
+const getUserIdFromRequest = (req: any): string | null => {
+  const authHeader = req.headers['authorization'] as string;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      if (decoded && (decoded.id || decoded.userId)) {
+        return decoded.id || decoded.userId;
+      }
+    } catch (err) {
+      console.warn("JWT verification error:", err);
+    }
+  }
+  return (req.headers['user-id'] as string) || null;
+};
 
 // Initialize Database Schema
 db.exec(`
@@ -12,6 +46,8 @@ db.exec(`
     id TEXT PRIMARY KEY,
     firstName TEXT NOT NULL,
     phone TEXT NOT NULL UNIQUE,
+    password TEXT,
+    password_hash TEXT,
     selfieUrl TEXT,
     balance REAL DEFAULT 0,
     referralCode TEXT NOT NULL UNIQUE,
@@ -88,6 +124,15 @@ db.exec(`
   );
 `);
 
+// Safe migration for existing DBs if they lack columns
+try {
+  db.exec("ALTER TABLE users ADD COLUMN password TEXT;");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT;");
+  console.log("Successfully migrated database to include password_hash column.");
+} catch (e) {}
+
 const normalizePhone = (phone: string) => phone.replace(/[\s\(\)\-\.]/g, '');
 
 // Seed Admin if it doesn't exist
@@ -120,7 +165,7 @@ async function startServer() {
 
   // --- Ma Carte API ---
   app.get("/api/my-cards", (req, res) => {
-    const userId = req.headers['user-id'] as string;
+    const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: "Non autorisé" });
     
     try {
@@ -136,7 +181,7 @@ async function startServer() {
   });
 
   app.post("/api/my-cards", (req, res) => {
-    const userId = req.headers['user-id'] as string;
+    const userId = getUserIdFromRequest(req);
     const { title, dailyAmount, totalDays } = req.body;
     if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
@@ -151,7 +196,7 @@ async function startServer() {
   });
 
   app.post("/api/my-cards/:id/pay", (req, res) => {
-    const userId = req.headers['user-id'] as string;
+    const userId = getUserIdFromRequest(req);
     const cardId = req.params.id;
     const { dayIndex } = req.body;
 
@@ -187,7 +232,7 @@ async function startServer() {
 
   // Auth / User
   app.post("/api/register", (req, res) => {
-    let { firstName, phone, selfieUrl } = req.body;
+    let { firstName, phone, password, selfieUrl } = req.body;
     firstName = firstName?.trim();
     const cleanPhone = normalizePhone(phone || '');
     if (!firstName || !cleanPhone) {
@@ -206,11 +251,22 @@ async function startServer() {
         return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé." });
       }
 
-      const stmt = db.prepare("INSERT INTO users (id, firstName, phone, selfieUrl, referralCode, role) VALUES (?, ?, ?, ?, ?, ?)");
-      stmt.run(id, firstName, cleanPhone, selfieUrl, myReferralCode, role);
+      // Hash password using bcryptjs
+      const passwordHash = password ? bcrypt.hashSync(password, 10) : null;
+
+      const stmt = db.prepare("INSERT INTO users (id, firstName, phone, password, password_hash, selfieUrl, referralCode, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      stmt.run(id, firstName, cleanPhone, password || null, passwordHash, selfieUrl, myReferralCode, role);
       
-      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
-      res.json(user);
+      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
+      
+      // Sign JWT token
+      const token = jwt.sign({ id: user.id, phone: user.phone, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
+      res.json({
+        token: token,
+        phone: user.phone,
+        user: user
+      });
     } catch (error: any) {
       console.error(`Registration error for ${cleanPhone}:`, error.message);
       res.status(500).json({ error: "Une erreur est survenue lors de l'enregistrement." });
@@ -218,7 +274,7 @@ async function startServer() {
   });
 
   app.post("/api/login", (req, res) => {
-    const { phone } = req.body;
+    const { phone, password } = req.body;
     const cleanPhone = normalizePhone(phone || '');
     console.log(`Login attempt for phone: [${cleanPhone}]`);
     const user = db.prepare("SELECT * FROM users WHERE phone = ?").get(cleanPhone) as any;
@@ -226,11 +282,47 @@ async function startServer() {
       if (user.isBanned) {
         return res.status(403).json({ error: "Votre compte a été banni. Veuillez contacter l'administration." });
       }
+
+      if (password) {
+        let isMatch = false;
+        if (user.password_hash) {
+          isMatch = bcrypt.compareSync(password, user.password_hash);
+        } else if (user.password) {
+          isMatch = (user.password === password);
+        } else {
+          isMatch = true; // allow password-less fallback if no password exists yet
+        }
+
+        if (!isMatch) {
+          return res.status(400).json({ error: "Mot de passe incorrect" });
+        }
+      }
+
       console.log(`Login success for: ${cleanPhone}`);
-      res.json(user);
+      
+      // Sign JWT token
+      const token = jwt.sign({ id: user.id, phone: user.phone, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
+      res.json({
+        token: token,
+        phone: user.phone,
+        user: user
+      });
     } else {
       console.warn(`Login failed: user not found for [${cleanPhone}]`);
       res.status(404).json({ error: "Utilisateur non trouvé" });
+    }
+  });
+
+  app.get("/api/users/me", (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: "Non autorisé" });
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+      if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+      res.json(user);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -255,7 +347,12 @@ async function startServer() {
   });
 
   app.post("/api/groups/join", (req, res) => {
-    const { groupId, userId, positions } = req.body; // positions: 1 or 2
+    const { groupId, positions } = req.body; // positions: 1 or 2
+    let userId = req.body.userId || getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
     const group = db.prepare("SELECT * FROM groups WHERE id = ?").get(groupId) as any;
     
     if (!group || group.status !== 'open') {
@@ -289,30 +386,49 @@ async function startServer() {
   });
 
   app.get("/api/users/:userId/groups", (req, res) => {
+    let userId = req.params.userId;
+    if (userId === 'me') {
+      userId = getUserIdFromRequest(req) as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
     const groups = db.prepare(`
       SELECT g.*, gm.positions, gm.joinedAt 
       FROM groups g 
       JOIN group_members gm ON g.id = gm.groupId 
       WHERE gm.userId = ?
-    `).all(req.params.userId);
+    `).all(userId);
     res.json(groups);
   });
 
   // Support
   app.get("/api/messages/:userId", (req, res) => {
-    const messages = db.prepare("SELECT * FROM messages WHERE userId = ? ORDER BY timestamp ASC").all(req.params.userId);
+    let userId = req.params.userId;
+    if (userId === 'me') {
+      userId = getUserIdFromRequest(req) as string;
+    }
+    if (!userId) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+    const messages = db.prepare("SELECT * FROM messages WHERE userId = ? ORDER BY timestamp ASC").all(userId);
     res.json(messages);
   });
 
   app.post("/api/messages", (req, res) => {
+    const headerUserId = getUserIdFromRequest(req);
     const { userId, type, content, isAdmin } = req.body;
+    const finalUserId = userId || headerUserId;
+    if (!finalUserId) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
     const id = Math.random().toString(36).substr(2, 9);
     const timestamp = new Date().toISOString();
 
     try {
       const stmt = db.prepare("INSERT INTO messages (id, userId, type, content, isAdmin, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
-      stmt.run(id, userId, type, content, isAdmin ? 1 : 0, timestamp);
-      res.json({ id, userId, type, content, isAdmin, timestamp });
+      stmt.run(id, finalUserId, type, content, isAdmin ? 1 : 0, timestamp);
+      res.json({ id, userId: finalUserId, type, content, isAdmin, timestamp });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

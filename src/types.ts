@@ -53,3 +53,41 @@ export interface SupportMessage {
   isAdmin: boolean;
   timestamp: string;
 }
+
+export interface Group {
+  id: string;
+  name: string;
+  stake: number;
+  maxMembers: number;
+  durationDays: number;
+  status: 'open' | 'active' | 'completed';
+  currentMembersCount: number;
+}
+
+export interface GroupMember {
+  id: string;
+  groupId: string;
+  userId: string;
+  positions: string;
+  joinedAt: string;
+}
+
+export interface MyCard {
+  id: string;
+  userId: string;
+  title: string;
+  dailyAmount: number;
+  totalDays: number;
+  createdAt: string;
+  payments?: CardPayment[];
+}
+
+export interface CardPayment {
+  id: string;
+  cardId: string;
+  dayIndex: number;
+  amount: number;
+  isCommission: boolean;
+  paidAt: string;
+}
+

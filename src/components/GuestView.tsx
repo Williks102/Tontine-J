@@ -35,7 +35,7 @@ interface GuestViewProps {
   setIsLoggingIn: (val: boolean) => void;
   regStep: number;
   setRegStep: (val: number | ((prev: number) => number)) => void;
-  regData: { firstName: string; phone: string; selfie: string };
+  regData: { firstName: string; phone: string; password?: string; selfie: string };
   setRegData: (data: any) => void;
   smsCode: string;
   setSmsCode: (code: string) => void;
@@ -43,6 +43,8 @@ interface GuestViewProps {
   setCameraError: (err: string | null) => void;
   loginPhone: string;
   setLoginPhone: (phone: string) => void;
+  loginPasswordStr: string;
+  setLoginPasswordStr: (pwd: string) => void;
   isLandingMenuOpen: boolean;
   setIsLandingMenuOpen: (val: boolean) => void;
   selectedLandingCategory: any;
@@ -85,6 +87,8 @@ export default function GuestView({
   setCameraError,
   loginPhone,
   setLoginPhone,
+  loginPasswordStr,
+  setLoginPasswordStr,
   isLandingMenuOpen,
   setIsLandingMenuOpen,
   selectedLandingCategory,
@@ -673,7 +677,7 @@ export default function GuestView({
         <div className="space-y-10 max-w-md w-full bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-xl shadow-purple-950/5">
           <div className="text-center space-y-3">
             <h2 className="text-3xl font-black text-gray-900 leading-tight">Bon retour ! 👋</h2>
-            <p className="text-gray-500 text-xs px-4">Entrez votre numéro de téléphone pour accéder à votre espace sécurisé.</p>
+            <p className="text-gray-500 text-xs px-4">Entrez votre numéro et mot de passe pour accéder à votre espace sécurisé.</p>
           </div>
           
           <div className="space-y-6">
@@ -687,7 +691,18 @@ export default function GuestView({
                 onChange={(e) => setLoginPhone(e.target.value)}
               />
             </div>
-            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginPhone || isLoggingInAction} onClick={handleLogin}>
+            
+            <div className="space-y-1">
+              <input 
+                type="password" 
+                placeholder="Votre mot de passe" 
+                className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all text-base font-bold"
+                value={loginPasswordStr}
+                onChange={(e) => setLoginPasswordStr(e.target.value)}
+              />
+            </div>
+
+            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginPhone || !loginPasswordStr || isLoggingInAction} onClick={handleLogin}>
               {isLoggingInAction ? "Vérification..." : "Se connecter"}
             </Button>
             <p className="text-center text-xs font-bold text-gray-500">
@@ -831,7 +846,16 @@ export default function GuestView({
                     onChange={(e) => setRegData({ ...regData, phone: e.target.value })}
                   />
                 </div>
-                <Button variant="primary" className="w-full py-5 text-lg" disabled={!regData.phone} onClick={() => setRegStep(4)}>M'envoyez le code</Button>
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 font-bold">Définissez votre mot de passe :</p>
+                  <input 
+                    type="password" placeholder="Mot de passe"
+                    className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold"
+                    value={regData.password || ''}
+                    onChange={(e) => setRegData({ ...regData, password: e.target.value })}
+                  />
+                </div>
+                <Button variant="primary" className="w-full py-5 text-lg" disabled={!regData.phone || !regData.password} onClick={() => setRegStep(4)}>M'envoyer le code</Button>
               </motion.div>
             )}
 
