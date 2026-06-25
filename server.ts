@@ -224,8 +224,6 @@ async function startServer() {
           .from('users').select('id, first_name').ilike('referral_code', refCode).maybeSingle();
         if (referrer) {
           validatedReferredBy = referrer.id;
-          await supabase.from('users').update({ balance: supabase.rpc as any }).eq('id', referrer.id);
-          // Bonus parrainage : +500 au parrain
           const { data: ref } = await supabase.from('users').select('balance').eq('id', referrer.id).single();
           await supabase.from('users').update({ balance: (ref?.balance || 0) + 500 }).eq('id', referrer.id);
         }
