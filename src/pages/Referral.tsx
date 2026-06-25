@@ -9,10 +9,7 @@ import { authFetch } from '../hooks/useAuth';
 export const Referral: React.FC = () => {
   const { user } = useAuthContext();
   const { setActiveTab } = useNavigation();
-  const [internalReferrals, setInternalReferrals] = useState(5);
-  const [externalReferrals, setExternalReferrals] = useState(3);
   const [isCopied, setIsCopied] = useState(false);
-  
   const [activeSubTab, setActiveSubTab] = useState<'invite' | 'history'>('invite');
   const [loading, setLoading] = useState(true);
   const [dynamicData, setDynamicData] = useState<{
@@ -21,6 +18,10 @@ export const Referral: React.FC = () => {
     referrals: Array<{ id: string; firstName: string; phone: string; status: 'actif' | 'inscrit'; date: string; bonus: number }>;
   } | null>(null);
 
+  // État indépendant pour le simulateur uniquement
+  const [simActive, setSimActive] = useState(0);
+  const [simInscrit, setSimInscrit] = useState(0);
+
   useEffect(() => {
     const loadReferrals = async () => {
       try {
@@ -28,13 +29,6 @@ export const Referral: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           setDynamicData(data);
-          // Auto set sliders based on real records if desired, or keep sandbox feel with dynamic results
-          const activeCount = data.referrals.filter((r: any) => r.status === 'actif').length;
-          const inactiveCount = data.referrals.filter((r: any) => r.status === 'inscrit').length;
-          if (activeCount > 0 || inactiveCount > 0) {
-            setInternalReferrals(activeCount);
-            setExternalReferrals(inactiveCount);
-          }
         }
       } catch (e) {
         console.error("Failed to load referrals", e);
@@ -45,7 +39,7 @@ export const Referral: React.FC = () => {
     loadReferrals();
   }, []);
 
-  const referralCode = dynamicData?.referralCode || user?.referralCode || 'PRO-KOFFI';
+  const referralCode = dynamicData?.referralCode || user?.referralCode || '';
   const inviteLink = `${window.location.origin}/invite/${referralCode}`;
 
   const copyToClipboard = () => {
@@ -54,9 +48,14 @@ export const Referral: React.FC = () => {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const totals = dynamicData?.totalEarned || ((internalReferrals * 2500) + (externalReferrals * 1500));
-  const itemsCount = dynamicData?.referrals?.length || 0;
-  const activeItemsCount = dynamicData?.referrals?.filter(r => r.status === 'actif').length || 0;
+  // Stats réelles depuis l'API
+  const totalEarned     = dynamicData?.totalEarned ?? 0;
+  const itemsCount      = dynamicData?.referrals?.length ?? 0;
+  const activeCount     = dynamicData?.referrals?.filter(r => r.status === 'actif').length ?? 0;
+  const inscritCount    = dynamicData?.referrals?.filter(r => r.status === 'inscrit').length ?? 0;
+
+  // Simulation indépendante (calculateur)
+  const simTotal = (simActive * 2000) + (simInscrit * 500);
 
   return (
     <div className="p-4 space-y-6 animate-in slide-in-from-right duration-300 font-sans">
@@ -88,8 +87,8 @@ export const Referral: React.FC = () => {
                 <Users size={32} />
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-black uppercase opacity-70">Gains Estimés</p>
-                <p className="text-2xl font-black">{totals.toLocaleString()} FCFA</p>
+                <p className="text-[10px] font-black uppercase opacity-70">Commissions gagnées</p>
+                <p className="text-2xl font-black">{totalEarned.toLocaleString()} FCFA</p>
               </div>
             </div>
             <h2 className="text-xl font-black">Invitez vos proches</h2>
@@ -98,10 +97,10 @@ export const Referral: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             {[
-              { label: 'Invitations lancées', value: `${itemsCount + 4}`, sub: 'Total', icon: MessageSquare, growth: true },
-              { label: 'Inscriptions réussies', value: `${itemsCount}`, sub: `Code: ${referralCode}`, icon: UserPlus, growth: true },
-              { label: 'Commissions totales', value: `${totals.toLocaleString()} F`, sub: 'Cumulé', icon: Banknote, growth: true },
-              { label: 'Membres Actifs', value: `${activeItemsCount}`, sub: 'Dans des tontines', icon: Clock, growth: false },
+              { label: 'Filleuls inscrits', value: `${itemsCount}`, sub: 'Total', icon: MessageSquare, growth: itemsCount > 0 },
+              { label: 'Filleuls actifs', value: `${activeCount}`, sub: 'Dans des tontines', icon: UserPlus, growth: activeCount > 0 },
+              { label: 'Commissions gagnées', value: `${totalEarned.toLocaleString()} F`, sub: 'Cumulé', icon: Banknote, growth: totalEarned > 0 },
+              { label: 'En attente', value: `${inscritCount}`, sub: 'Pas encore actifs', icon: Clock, growth: false },
             ].map((stat, i) => (
               <Card key={i} className="space-y-2">
                 <div className="flex justify-between items-center text-gray-400">
@@ -163,28 +162,28 @@ export const Referral: React.FC = () => {
             <div className="space-y-6 px-2">
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-bold text-gray-600">
-                  <span>Inscriptions simples (Bonus: +500 F)</span>
-                  <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">{externalReferrals}</span>
+                  <span>Inscriptions simples <span className="text-orange-500">(+500 F chacune)</span></span>
+                  <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">{simInscrit}</span>
                 </div>
                 <input 
                   type="range" 
                   min="0" 
                   max="20" 
-                  value={externalReferrals} 
+                  value={simInscrit} 
                   onChange={e => setExternalReferrals(parseInt(e.target.value) || 0)}
                   className="w-full accent-orange-500" 
                 />
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-bold text-gray-600">
-                  <span>Membres en tontines actives (Bonus supplémentaire: +1 500 F)</span>
-                  <span className="bg-violet-100 text-[#3B0764] px-2 py-0.5 rounded-full">{internalReferrals}</span>
+                  <span>Filleuls actifs en tontine <span className="text-[#3B0764]">(+2 000 F chacun)</span></span>
+                  <span className="bg-violet-100 text-[#3B0764] px-2 py-0.5 rounded-full">{simActive}</span>
                 </div>
                 <input 
                   type="range" 
                   min="0" 
                   max="20" 
-                  value={internalReferrals} 
+                  value={simActive} 
                   onChange={e => setInternalReferrals(parseInt(e.target.value) || 0)}
                   className="w-full accent-[#3B0764]" 
                 />
@@ -192,7 +191,7 @@ export const Referral: React.FC = () => {
             </div>
             <div className="pt-4 border-t border-gray-100 flex justify-between items-center">
               <p className="text-[10px] text-green-600 font-black uppercase">Gains simulés</p>
-              <p className="text-2xl font-black text-green-700">{((internalReferrals * 2000) + (externalReferrals * 500)).toLocaleString()} FCFA</p>
+              <p className="text-2xl font-black text-green-700">{simTotal.toLocaleString()} FCFA</p>
             </div>
           </Card>
         </>
