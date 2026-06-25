@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers, CreditCard, Wallet } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useGroups } from '../hooks/useGroups';
 import { Button } from '../components/ui/Button';
+import { WalletRechargeModal } from '../components/WalletRechargeModal';
 
 const getGroupImage = (name: string, id: string): string => {
   const query = (name + " " + id).toLowerCase();
@@ -23,12 +24,15 @@ const statusLabel: Record<string, { label: string; className: string }> = {
 type Tab = 'boutique' | 'mes-tontines';
 
 export const Groups: React.FC = () => {
-  const { availableGroups, userGroups, fetchAvailableGroups, fetchUserGroups, joinGroup } = useGroups();
+  const { availableGroups, userGroups, fetchAvailableGroups, fetchUserGroups, joinGroup, payGroupPeriod } = useGroups();
   const [activeTab, setActiveTab] = useState<Tab>('boutique');
   const [isJoiningGroup, setIsJoiningGroup] = useState<any>(null);
   const [positionsToJoin, setPositionsToJoin] = useState(1);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [payingGroupId, setPayingGroupId] = useState<string | null>(null);
+  const [paySuccess, setPaySuccess] = useState<string | null>(null);
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
 
   useEffect(() => {
     fetchAvailableGroups();
@@ -44,7 +48,9 @@ export const Groups: React.FC = () => {
       if (res.success) {
         setIsJoiningGroup(null);
         setActiveTab('mes-tontines');
-        alert("Félicitations ! Vous avez rejoint ce groupe.");
+      } else if (res.code === 'INSUFFICIENT_BALANCE') {
+        setIsJoiningGroup(null);
+        setShowRechargeModal(true);
       } else {
         setMessage(res.error || "Une erreur est survenue.");
       }
@@ -52,6 +58,22 @@ export const Groups: React.FC = () => {
       setMessage(e.message || "Erreur de connexion.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePayPeriod = async (groupId: string) => {
+    setPayingGroupId(groupId);
+    setPaySuccess(null);
+    const res = await payGroupPeriod(groupId);
+    setPayingGroupId(null);
+    if (res.success) {
+      setPaySuccess(groupId);
+      fetchUserGroups();
+      setTimeout(() => setPaySuccess(null), 3000);
+    } else if (res.code === 'INSUFFICIENT_BALANCE') {
+      setShowRechargeModal(true);
+    } else {
+      alert(res.error || "Erreur lors du paiement.");
     }
   };
 
@@ -67,6 +89,15 @@ export const Groups: React.FC = () => {
 
   return (
     <div className="p-4 space-y-6 font-sans">
+
+      <AnimatePresence>
+        {showRechargeModal && (
+          <WalletRechargeModal
+            onClose={() => setShowRechargeModal(false)}
+            onSuccess={() => setShowRechargeModal(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
@@ -242,31 +273,63 @@ export const Groups: React.FC = () => {
                 {activeUserGroups.map((g, i) => {
                   const s = statusLabel[g.status] || statusLabel.open;
                   const totalContributed = g.stake * (g.positions || 1);
+                  const isPaying = payingGroupId === g.id;
+                  const justPaid = paySuccess === g.id;
+                  const isActive = g.status === 'active';
                   return (
                     <motion.div key={g.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.05 }}
-                      className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex gap-4 items-center">
-                      <div className="w-12 h-12 rounded-xl bg-[#3B0764]/10 flex items-center justify-center shrink-0">
-                        <Users size={22} className="text-[#3B0764]" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-black text-gray-800 text-sm truncate">{g.name}</p>
-                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${s.className}`}>{s.label}</span>
+                      className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+                      <div className="flex gap-4 items-center">
+                        <div className="w-12 h-12 rounded-xl bg-[#3B0764]/10 flex items-center justify-center shrink-0">
+                          <Users size={22} className="text-[#3B0764]" />
                         </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-                          <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                            <Layers size={11} /> {g.positions || 1} bras · {g.stake?.toLocaleString()} F/cycle
-                          </span>
-                          <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                            <CalendarDays size={11} /> Rejoint le {g.joinedAt ? new Date(g.joinedAt).toLocaleDateString('fr-FR') : '—'}
-                          </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-black text-gray-800 text-sm truncate">{g.name}</p>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${s.className}`}>{s.label}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                              <Layers size={11} /> {g.positions || 1} bras · {g.stake?.toLocaleString()} F/cycle
+                            </span>
+                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                              <CalendarDays size={11} /> Rejoint le {g.joinedAt ? new Date(g.joinedAt).toLocaleDateString('fr-FR') : '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-black text-[#3B0764]">{totalContributed.toLocaleString()} F</p>
+                          <p className="text-[10px] text-gray-400 font-medium">investi</p>
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs font-black text-[#3B0764]">{totalContributed.toLocaleString()} F</p>
-                        <p className="text-[10px] text-gray-400 font-medium">investi</p>
-                      </div>
+
+                      {isActive && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-gray-50">
+                          {justPaid ? (
+                            <div className="flex-1 flex items-center gap-2 bg-emerald-50 text-emerald-700 rounded-xl px-3 py-2">
+                              <CheckCircle2 size={14} />
+                              <span className="text-xs font-black">Cotisation enregistrée !</span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handlePayPeriod(g.id)}
+                              disabled={isPaying}
+                              className="flex-1 flex items-center justify-center gap-2 bg-[#3B0764] text-white rounded-xl px-4 py-2.5 text-xs font-black hover:bg-[#2C054D] active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+                            >
+                              <CreditCard size={14} />
+                              {isPaying ? 'Traitement...' : `Payer ma cotisation — ${totalContributed.toLocaleString()} F`}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setShowRechargeModal(true)}
+                            className="p-2.5 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition-colors cursor-pointer"
+                            title="Recharger mon compte"
+                          >
+                            <Wallet size={16} />
+                          </button>
+                        </div>
+                      )}
                     </motion.div>
                   );
                 })}

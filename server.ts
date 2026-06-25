@@ -427,12 +427,27 @@ async function startServer() {
       return res.status(400).json({ error: "Pas assez de places disponibles." });
     }
 
+    const totalCost = Math.round(group.stake * 1.1 * positions);
+    const { data: userData } = await supabase.from('users').select('balance').eq('id', userId).single();
+    if (!userData || (userData.balance || 0) < totalCost) {
+      return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
+    }
+
     const joinedAt = new Date().toISOString();
     const { error } = await supabase.rpc('rpc_join_group', {
       p_member_id: genId(), p_group_id: groupId, p_user_id: userId,
       p_positions: positions, p_joined_at: joinedAt, p_payment_id: `pay_group_${genId()}`
     });
     if (error) return res.status(400).json({ error: error.message });
+
+    const newBalance = (userData.balance || 0) - totalCost;
+    await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+    await supabase.from('wallet_transactions').insert({
+      id: `txn_${genId()}`, user_id: userId, type: 'group_join',
+      amount: -totalCost,
+      description: `Adhésion tontine: ${group.name} (${positions} bras)`,
+      status: 'completed', created_at: joinedAt
+    });
 
     // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
     const { data: joiningUser } = await supabase.from('users').select('referred_by').eq('id', userId).single();
@@ -446,7 +461,45 @@ async function startServer() {
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, newBalance });
+  });
+
+  app.post("/api/groups/:id/pay-period", async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: "Non autorisé" });
+    const groupId = req.params.id;
+    try {
+      const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single();
+      if (!group || group.status !== 'active') return res.status(400).json({ error: "Ce groupe n'est pas actif." });
+
+      const { data: membership } = await supabase
+        .from('group_members').select('positions').eq('group_id', groupId).eq('user_id', userId).single();
+      if (!membership) return res.status(404).json({ error: "Vous n'êtes pas membre de ce groupe." });
+
+      const amount = group.stake * (membership.positions || 1);
+      const commission = Math.round(amount * 0.1);
+
+      const { data: userData } = await supabase.from('users').select('balance').eq('id', userId).single();
+      if (!userData || (userData.balance || 0) < amount) {
+        return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
+      }
+
+      const now = new Date().toISOString();
+      const newBalance = (userData.balance || 0) - amount;
+      await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+      await supabase.from('payments').insert({
+        id: `pay_period_${genId()}`, group_id: groupId, user_id: userId,
+        amount, commission, status: 'completed', timestamp: now
+      });
+      await supabase.from('wallet_transactions').insert({
+        id: `txn_${genId()}`, user_id: userId, type: 'group_payment',
+        amount: -amount,
+        description: `Cotisation tontine: ${group.name}`,
+        status: 'completed', created_at: now
+      });
+
+      res.json({ success: true, newBalance, amount });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.get("/api/users/:userId/groups", async (req, res) => {

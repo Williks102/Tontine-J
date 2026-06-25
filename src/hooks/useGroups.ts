@@ -59,10 +59,21 @@ export const useGroups = () => {
         return { success: true };
       } else {
         setError(data.error || "Erreur lors de l'inscription");
-        return { success: false, error: data.error };
+        return { success: false, error: data.error, code: data.code };
       }
     } catch (e: any) {
       setError(e.message || "Erreur serveur");
+      return { success: false, error: e.message };
+    }
+  };
+
+  const payGroupPeriod = async (groupId: string) => {
+    try {
+      const res = await authFetch(`/api/groups/${groupId}/pay-period`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) return { success: true, newBalance: data.newBalance, amount: data.amount };
+      return { success: false, error: data.error, code: data.code };
+    } catch (e: any) {
       return { success: false, error: e.message };
     }
   };
@@ -75,5 +86,6 @@ export const useGroups = () => {
     fetchAvailableGroups,
     fetchUserGroups,
     joinGroup,
+    payGroupPeriod,
   };
 };
