@@ -173,6 +173,12 @@ async function startServer() {
     try {
       const { data: card } = await supabase.from('my_cards').select('*').eq('id', cardId).single();
       if (!card || card.user_id !== userId) return res.status(404).json({ error: "Carte non trouvée" });
+
+      const { data: userData } = await supabase.from('users').select('balance').eq('id', userId).single();
+      if (!userData || (userData.balance || 0) < card.daily_amount) {
+        return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
+      }
+
       const isCommission = dayIndex === (card.total_days - 1);
       const paymentId = `pay_${genId()}`;
       const { error } = await supabase.from('card_payments').insert({
@@ -180,10 +186,20 @@ async function startServer() {
         amount: card.daily_amount, is_commission: isCommission
       });
       if (error) throw error;
+
+      const newBalance = (userData.balance || 0) - card.daily_amount;
+      await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+      await supabase.from('wallet_transactions').insert({
+        id: `txn_${genId()}`, user_id: userId, type: 'card_payment',
+        amount: -card.daily_amount,
+        description: `Cotisation carte — Jour ${dayIndex + 1}${isCommission ? ' (frais de gestion)' : ''}`,
+        status: 'completed', created_at: new Date().toISOString()
+      });
+
       if (isCommission) {
         await supabase.from('my_cards').update({ status: 'completed' }).eq('id', cardId);
       }
-      res.json({ success: true, isCommission });
+      res.json({ success: true, isCommission, newBalance });
     } catch (e: any) { res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
   });
 
@@ -197,6 +213,41 @@ async function startServer() {
       await supabase.from('card_payments').delete().eq('card_id', cardId);
       await supabase.from('my_cards').delete().eq('id', cardId);
       res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // --- Wallet ---
+
+  app.get("/api/wallet", async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: "Non autorisé" });
+    try {
+      const { data: user } = await supabase.from('users').select('balance').eq('id', userId).single();
+      const { data: transactions } = await supabase
+        .from('wallet_transactions').select('*').eq('user_id', userId)
+        .order('created_at', { ascending: false }).limit(30);
+      res.json({ balance: user?.balance || 0, transactions: (transactions || []).map(camelizeKeys) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/wallet/recharge", async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: "Non autorisé" });
+    const amount = parseInt(req.body.amount);
+    const phone = (req.body.phone || '').trim();
+    if (!amount || amount < 500) return res.status(400).json({ error: "Montant minimum: 500 FCFA" });
+    if (amount > 1000000) return res.status(400).json({ error: "Montant maximum: 1 000 000 FCFA" });
+    try {
+      const { data: user } = await supabase.from('users').select('balance').eq('id', userId).single();
+      if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+      const newBalance = (user.balance || 0) + amount;
+      await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+      await supabase.from('wallet_transactions').insert({
+        id: `txn_${genId()}`, user_id: userId, type: 'recharge',
+        amount, description: `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`,
+        status: 'completed', created_at: new Date().toISOString()
+      });
+      res.json({ success: true, newBalance, amount });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

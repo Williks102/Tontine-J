@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  Plus, LayoutGrid, Trophy, Check, Trash2, Users, 
-  TrendingUp, Coins, Search, Filter, AlertCircle, Calendar 
+import {
+  Plus, LayoutGrid, Trophy, Check, Trash2,
+  TrendingUp, Coins, Search, Filter, AlertCircle, Calendar, Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuthContext } from '../context/AuthContext';
 import { authFetch } from '../hooks/useAuth';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { WalletRechargeModal } from '../components/WalletRechargeModal';
 
 export const MyCard: React.FC = () => {
   const { user } = useAuthContext();
@@ -18,6 +19,9 @@ export const MyCard: React.FC = () => {
   const [isCreatingCard, setIsCreatingCard] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [newCardData, setNewCardData] = useState({ title: 'Ma Tontine Journalière', dailyAmount: 5000, totalDays: 31 });
+  const [balance, setBalance] = useState<number>(0);
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [insufficientCardId, setInsufficientCardId] = useState<string | null>(null);
 
   // --- ADMIN PANEL STATES ---
   const [adminCards, setAdminCards] = useState<any[]>([]);
@@ -65,6 +69,16 @@ export const MyCard: React.FC = () => {
       }
     }
     setIsSyncing(false);
+  };
+
+  const fetchBalance = async () => {
+    try {
+      const res = await authFetch('/api/wallet');
+      if (res.ok) {
+        const data = await res.json();
+        setBalance(data.balance || 0);
+      }
+    } catch {}
   };
 
   const fetchUserCards = async () => {
@@ -149,13 +163,16 @@ export const MyCard: React.FC = () => {
 
   const handleCardPayment = async (cardId: string, dayIndex: number) => {
     if (!user) return;
+    setInsufficientCardId(null);
     try {
       const res = await authFetch(`/api/my-cards/${cardId}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dayIndex })
       });
+      const data = await res.json();
       if (res.ok) {
+        if (data.newBalance !== undefined) setBalance(data.newBalance);
         const localCacheKey = `tontine_pro_cards_${user.id}`;
         const updated = userCards.map(c => {
           if (c.id === cardId) {
@@ -169,13 +186,14 @@ export const MyCard: React.FC = () => {
           }
           return c;
         });
-        
         setUserCards(updated);
         localStorage.setItem(localCacheKey, JSON.stringify(updated));
         fetchUserCards();
+      } else if (data.code === 'INSUFFICIENT_BALANCE') {
+        setInsufficientCardId(cardId);
+        setShowRechargeModal(true);
       } else {
-        const err = await res.json();
-        alert(err.error || "Erreur lors du paiement");
+        alert(data.error || "Erreur lors du paiement");
       }
     } catch (e) {
       console.error(e);
@@ -302,6 +320,7 @@ export const MyCard: React.FC = () => {
         fetchSystemUsers();
       } else {
         fetchUserCards();
+        fetchBalance();
       }
     }
   }, [user]);
@@ -714,13 +733,42 @@ export const MyCard: React.FC = () => {
 
   return (
     <div className="p-4 pb-24 space-y-6 font-sans">
+
+      <AnimatePresence>
+        {showRechargeModal && (
+          <WalletRechargeModal
+            onClose={() => { setShowRechargeModal(false); setInsufficientCardId(null); }}
+            onSuccess={(nb) => { setBalance(nb); setShowRechargeModal(false); setInsufficientCardId(null); }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Widget solde */}
+      <div className="bg-gradient-to-br from-[#3B0764] to-[#6D28D9] rounded-3xl p-5 flex items-center justify-between text-white shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 bg-white/15 rounded-2xl flex items-center justify-center">
+            <Wallet size={22} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Mon Solde</p>
+            <p className="text-2xl font-black">{balance.toLocaleString()} <span className="text-sm font-bold text-white/70">FCFA</span></p>
+          </div>
+        </div>
+        <button
+          onClick={() => setShowRechargeModal(true)}
+          className="bg-amber-400 text-[#3B0764] px-4 py-2.5 rounded-2xl text-xs font-black hover:bg-amber-300 active:scale-95 transition-all cursor-pointer shadow-md"
+        >
+          + Recharger
+        </button>
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-gray-800">Ma Carte Épargne</h2>
           <p className="text-xs font-bold text-gray-400">Suivez vos cotisations quotidiennes au guichet de votre carte</p>
         </div>
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="border-[#3B0764] text-[#3B0764] hover:bg-violet-50"
           onClick={() => setIsCreatingCard(true)}
         >
@@ -852,6 +900,21 @@ export const MyCard: React.FC = () => {
                     );
                   })}
                 </div>
+
+                {insufficientCardId === card.id && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-100 p-3 rounded-xl">
+                    <AlertCircle size={16} className="text-red-500 shrink-0" />
+                    <p className="text-[10px] font-bold text-red-600 leading-tight flex-1">
+                      Solde insuffisant pour cette mise ({card.dailyAmount} F).
+                    </p>
+                    <button
+                      onClick={() => setShowRechargeModal(true)}
+                      className="text-[10px] font-black text-[#3B0764] underline cursor-pointer"
+                    >
+                      Recharger
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 bg-orange-50 p-3 rounded-xl">
                   <div className="w-8 h-8 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center">

@@ -116,19 +116,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Auto load user and silently recover session if SQLite DB was wiped/reset on server restart
   useEffect(() => {
     const initAuth = async () => {
+      // Detect /invite/:code in URL and extract the referral code
+      const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]+)/);
+      const inviteCode = inviteMatch ? inviteMatch[1] : null;
+      if (inviteCode) {
+        window.history.replaceState({}, '', '/');
+      }
+
       const savedUser = getSavedUser();
       const token = localStorage.getItem('tontine_pro_token');
-      
+
       if (savedUser && token) {
         setUser(savedUser);
         // Verify with backend
         await fetchMe();
       } else {
         // No active user, check if we have offline credentials to auto-recover/register!
-        await attemptRecovery();
+        const recovered = await attemptRecovery();
+        if (!recovered && inviteCode) {
+          setRegData(prev => ({ ...prev, referredByCode: inviteCode }));
+          setIsRegistering(true);
+        }
       }
     };
-    
+
     initAuth();
   }, []);
 

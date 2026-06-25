@@ -1,16 +1,19 @@
-import React, { useEffect } from 'react';
-import { PiggyBank, Trophy, CreditCard, History, ShieldCheck, UserPlus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { PiggyBank, Trophy, CreditCard, History, ShieldCheck, UserPlus, Wallet } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 import { useAuthContext } from '../context/AuthContext';
 import { useNavigation } from '../context/NavigationContext';
 import { useGroups } from '../hooks/useGroups';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { WalletRechargeModal } from '../components/WalletRechargeModal';
 
 export const Dashboard: React.FC = () => {
-  const { user } = useAuthContext();
+  const { user, fetchMe } = useAuthContext();
   const { setActiveTab, setCurrentPage } = useNavigation();
   const { userGroups, fetchUserGroups } = useGroups();
   const [globalStats, setGlobalStats] = React.useState<any>(null);
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -27,22 +30,47 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="p-4 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 font-sans">
+
+      <AnimatePresence>
+        {showRechargeModal && (
+          <WalletRechargeModal
+            onClose={() => setShowRechargeModal(false)}
+            onSuccess={() => { setShowRechargeModal(false); fetchMe(); }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Wallet Banner */}
+      <div className="bg-gradient-to-br from-[#3B0764] to-[#6D28D9] rounded-3xl p-5 flex items-center justify-between text-white shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 bg-white/15 rounded-2xl flex items-center justify-center">
+            <Wallet size={22} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Mon Solde</p>
+            <p className="text-2xl font-black">{(user?.balance || 0).toLocaleString()} <span className="text-sm font-bold text-white/70">FCFA</span></p>
+          </div>
+        </div>
+        <button
+          onClick={() => setShowRechargeModal(true)}
+          className="bg-amber-400 text-[#3B0764] px-4 py-2.5 rounded-2xl text-xs font-black hover:bg-amber-300 active:scale-95 transition-all cursor-pointer shadow-md"
+        >
+          + Recharger
+        </button>
+      </div>
+
       {/* Header Profile */}
       <div className="flex items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-50">
         <div className="relative">
-          <img 
-            src={user?.selfieUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop"} 
-            className="w-14 h-14 rounded-full border-2 border-violet-100 object-cover" 
+          <img
+            src={user?.selfieUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop"}
+            className="w-14 h-14 rounded-full border-2 border-violet-100 object-cover"
             referrerPolicy="no-referrer"
           />
         </div>
         <div className="flex-1">
           <h2 className="text-lg font-bold text-gray-800">Bonjour, {user?.firstName}</h2>
           <p className="text-xs text-gray-500">{userGroups.length} tontine(s) inscrite(s)</p>
-        </div>
-        <div className="text-right">
-           <p className="text-[10px] text-gray-400 font-black uppercase">Solde</p>
-           <p className="text-sm font-black text-[#6D28D9]">{user?.balance || 0} FCFA</p>
         </div>
       </div>
 

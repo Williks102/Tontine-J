@@ -170,7 +170,7 @@ export const Referral: React.FC = () => {
                   min="0" 
                   max="20" 
                   value={simInscrit} 
-                  onChange={e => setExternalReferrals(parseInt(e.target.value) || 0)}
+                  onChange={e => setSimInscrit(parseInt(e.target.value) || 0)}
                   className="w-full accent-orange-500" 
                 />
               </div>
@@ -184,7 +184,7 @@ export const Referral: React.FC = () => {
                   min="0" 
                   max="20" 
                   value={simActive} 
-                  onChange={e => setInternalReferrals(parseInt(e.target.value) || 0)}
+                  onChange={e => setSimActive(parseInt(e.target.value) || 0)}
                   className="w-full accent-[#3B0764]" 
                 />
               </div>
