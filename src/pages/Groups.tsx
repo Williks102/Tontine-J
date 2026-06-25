@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers, CreditCard, Wallet } from 'lucide-react';
+import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers, CreditCard, Wallet, X, ChevronRight, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useGroups } from '../hooks/useGroups';
+import { useNavigation } from '../context/NavigationContext';
+import { authFetch } from '../hooks/useAuth';
 import { Button } from '../components/ui/Button';
 import { WalletRechargeModal } from '../components/WalletRechargeModal';
 
@@ -25,6 +27,7 @@ type Tab = 'boutique' | 'mes-tontines';
 
 export const Groups: React.FC = () => {
   const { availableGroups, userGroups, fetchAvailableGroups, fetchUserGroups, joinGroup, payGroupPeriod } = useGroups();
+  const { groupNavTarget, setGroupNavTarget } = useNavigation();
   const [activeTab, setActiveTab] = useState<Tab>('boutique');
   const [isJoiningGroup, setIsJoiningGroup] = useState<any>(null);
   const [positionsToJoin, setPositionsToJoin] = useState(1);
@@ -33,11 +36,35 @@ export const Groups: React.FC = () => {
   const [payingGroupId, setPayingGroupId] = useState<string | null>(null);
   const [paySuccess, setPaySuccess] = useState<string | null>(null);
   const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [detailGroup, setDetailGroup] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     fetchAvailableGroups();
     fetchUserGroups();
   }, []);
+
+  // Réagit à la navigation ciblée depuis le Dashboard
+  useEffect(() => {
+    if (groupNavTarget) {
+      setActiveTab(groupNavTarget.groupTab || 'mes-tontines');
+      openGroupDetail(groupNavTarget.groupId);
+      setGroupNavTarget(null);
+    }
+  }, [groupNavTarget]);
+
+  const openGroupDetail = async (groupId: string) => {
+    setDetailLoading(true);
+    try {
+      const res = await authFetch(`/api/groups/${groupId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDetailGroup(data);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const handleConfirmJoin = async () => {
     if (!isJoiningGroup) return;
@@ -273,63 +300,35 @@ export const Groups: React.FC = () => {
                 {activeUserGroups.map((g, i) => {
                   const s = statusLabel[g.status] || statusLabel.open;
                   const totalContributed = g.stake * (g.positions || 1);
-                  const isPaying = payingGroupId === g.id;
-                  const justPaid = paySuccess === g.id;
-                  const isActive = g.status === 'active';
                   return (
                     <motion.div key={g.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.05 }}
-                      className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
-                      <div className="flex gap-4 items-center">
-                        <div className="w-12 h-12 rounded-xl bg-[#3B0764]/10 flex items-center justify-center shrink-0">
-                          <Users size={22} className="text-[#3B0764]" />
+                      onClick={() => openGroupDetail(g.id)}
+                      className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex gap-4 items-center cursor-pointer hover:border-[#3B0764]/20 hover:shadow-md transition-all active:scale-[0.99]">
+                      <div className="w-12 h-12 rounded-xl bg-[#3B0764]/10 flex items-center justify-center shrink-0">
+                        <Users size={22} className="text-[#3B0764]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-black text-gray-800 text-sm truncate">{g.name}</p>
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${s.className}`}>{s.label}</span>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-black text-gray-800 text-sm truncate">{g.name}</p>
-                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${s.className}`}>{s.label}</span>
-                          </div>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                              <Layers size={11} /> {g.positions || 1} bras · {g.stake?.toLocaleString()} F/cycle
-                            </span>
-                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                              <CalendarDays size={11} /> Rejoint le {g.joinedAt ? new Date(g.joinedAt).toLocaleDateString('fr-FR') : '—'}
-                            </span>
-                          </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                          <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                            <Layers size={11} /> {g.positions || 1} bras · {g.stake?.toLocaleString()} F/cycle
+                          </span>
+                          <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                            <CalendarDays size={11} /> Rejoint le {g.joinedAt ? new Date(g.joinedAt).toLocaleDateString('fr-FR') : '—'}
+                          </span>
                         </div>
-                        <div className="text-right shrink-0">
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right">
                           <p className="text-xs font-black text-[#3B0764]">{totalContributed.toLocaleString()} F</p>
                           <p className="text-[10px] text-gray-400 font-medium">investi</p>
                         </div>
+                        <ChevronRight size={16} className="text-gray-300" />
                       </div>
-
-                      {isActive && (
-                        <div className="flex items-center gap-2 pt-1 border-t border-gray-50">
-                          {justPaid ? (
-                            <div className="flex-1 flex items-center gap-2 bg-emerald-50 text-emerald-700 rounded-xl px-3 py-2">
-                              <CheckCircle2 size={14} />
-                              <span className="text-xs font-black">Cotisation enregistrée !</span>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => handlePayPeriod(g.id)}
-                              disabled={isPaying}
-                              className="flex-1 flex items-center justify-center gap-2 bg-[#3B0764] text-white rounded-xl px-4 py-2.5 text-xs font-black hover:bg-[#2C054D] active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
-                            >
-                              <CreditCard size={14} />
-                              {isPaying ? 'Traitement...' : `Payer ma cotisation — ${totalContributed.toLocaleString()} F`}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setShowRechargeModal(true)}
-                            className="p-2.5 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition-colors cursor-pointer"
-                            title="Recharger mon compte"
-                          >
-                            <Wallet size={16} />
-                          </button>
-                        </div>
-                      )}
                     </motion.div>
                   );
                 })}
@@ -388,6 +387,132 @@ export const Groups: React.FC = () => {
           </section>
         </div>
       )}
+
+      {/* Panneau détail groupe */}
+      <AnimatePresence>
+        {(detailGroup || detailLoading) && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 60 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 60 }}
+              className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              {detailLoading ? (
+                <div className="p-12 flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 border-4 border-[#3B0764] border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs font-bold text-gray-400">Chargement...</p>
+                </div>
+              ) : detailGroup && (() => {
+                const dg = detailGroup;
+                const s = statusLabel[dg.status] || statusLabel.open;
+                const myMembership = userGroups.find(g => g.id === dg.id);
+                const myPositions = myMembership?.positions || 1;
+                const myCotisation = dg.stake * myPositions;
+                const isPaying = payingGroupId === dg.id;
+                const justPaid = paySuccess === dg.id;
+                const canPay = !!myMembership && dg.status !== 'completed' && dg.status !== 'deleted';
+
+                return (
+                  <>
+                    {/* Header */}
+                    <div className="bg-[#3B0764] p-5 flex items-start justify-between">
+                      <div className="flex-1">
+                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${s.className} bg-white/10 text-white border-white/20 mb-2 inline-block`}>{s.label}</span>
+                        <h3 className="text-white font-black text-lg leading-tight">{dg.name}</h3>
+                        <p className="text-white/60 text-[11px] font-bold mt-1">{dg.currentMembersCount}/{dg.maxMembers} membres · {dg.durationDays} jours</p>
+                      </div>
+                      <button onClick={() => setDetailGroup(null)}
+                        className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center text-white hover:bg-white/20 transition-colors cursor-pointer mt-1 shrink-0">
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    <div className="overflow-y-auto flex-1 p-5 space-y-5">
+                      {/* Stats */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-violet-50 rounded-2xl p-3 text-center">
+                          <p className="text-[9px] font-black text-violet-500 uppercase">Mise</p>
+                          <p className="text-sm font-black text-violet-900">{dg.stake?.toLocaleString()} F</p>
+                        </div>
+                        <div className="bg-amber-50 rounded-2xl p-3 text-center">
+                          <p className="text-[9px] font-black text-amber-600 uppercase">Mes bras</p>
+                          <p className="text-sm font-black text-amber-900">{myPositions}</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-2xl p-3 text-center">
+                          <p className="text-[9px] font-black text-emerald-600 uppercase">Durée</p>
+                          <p className="text-sm font-black text-emerald-900">{dg.durationDays}j</p>
+                        </div>
+                      </div>
+
+                      {/* Ma cotisation */}
+                      <div className="bg-gray-50 rounded-2xl p-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-black text-gray-400 uppercase">Ma cotisation / cycle</p>
+                          <p className="text-xl font-black text-gray-900">{myCotisation.toLocaleString()} <span className="text-xs text-gray-400">FCFA</span></p>
+                        </div>
+                        <CreditCard size={24} className="text-[#3B0764]/30" />
+                      </div>
+
+                      {/* Bouton payer */}
+                      {canPay && (
+                        <div className="space-y-2">
+                          {justPaid ? (
+                            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-2xl px-4 py-3">
+                              <CheckCircle2 size={18} />
+                              <span className="text-sm font-black">Cotisation enregistrée !</span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handlePayPeriod(dg.id)}
+                              disabled={isPaying}
+                              className="w-full flex items-center justify-center gap-2 bg-[#3B0764] text-white rounded-2xl px-4 py-4 text-sm font-black hover:bg-[#2C054D] active:scale-95 transition-all disabled:opacity-60 cursor-pointer shadow-lg shadow-[#3B0764]/20"
+                            >
+                              <CreditCard size={18} />
+                              {isPaying ? 'Traitement en cours...' : `Payer ma cotisation — ${myCotisation.toLocaleString()} F`}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setDetailGroup(null); setShowRechargeModal(true); }}
+                            className="w-full flex items-center justify-center gap-2 bg-amber-50 text-amber-700 border border-amber-100 rounded-2xl px-4 py-2.5 text-xs font-black hover:bg-amber-100 transition-colors cursor-pointer"
+                          >
+                            <Wallet size={14} /> Recharger mon compte
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Membres */}
+                      {dg.members && dg.members.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                            <Users size={12} /> Membres ({dg.members.length})
+                          </p>
+                          <div className="space-y-2">
+                            {dg.members.map((m: any, i: number) => (
+                              <div key={m.id || i} className="flex items-center gap-3 bg-gray-50 rounded-xl p-2.5">
+                                <img
+                                  src={m.selfieUrl || `https://ui-avatars.com/api/?name=${m.firstName}&background=3B0764&color=fff&size=40`}
+                                  className="w-8 h-8 rounded-full object-cover border border-white shadow-sm"
+                                  referrerPolicy="no-referrer"
+                                  alt={m.firstName}
+                                />
+                                <div className="flex-1">
+                                  <p className="text-xs font-black text-gray-800">{m.firstName || 'Membre'}</p>
+                                  <p className="text-[10px] text-gray-400">{m.positions || 1} bras</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modal rejoindre */}
       {isJoiningGroup && (

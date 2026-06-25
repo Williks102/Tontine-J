@@ -470,7 +470,7 @@ async function startServer() {
     const groupId = req.params.id;
     try {
       const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single();
-      if (!group || group.status !== 'active') return res.status(400).json({ error: "Ce groupe n'est pas actif." });
+      if (!group || group.status === 'completed' || group.status === 'deleted') return res.status(400).json({ error: "Ce groupe est terminé ou clôturé." });
 
       const { data: membership } = await supabase
         .from('group_members').select('positions').eq('group_id', groupId).eq('user_id', userId).single();

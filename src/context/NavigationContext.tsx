@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useState } from 'react';
 
+export interface GroupNavTarget {
+  groupId: string;
+  groupTab?: 'mes-tontines' | 'boutique';
+}
+
 interface NavigationContextType {
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -8,6 +13,8 @@ interface NavigationContextType {
   goBack: () => void;
   isMenuOpen: boolean;
   setIsMenuOpen: (open: boolean) => void;
+  groupNavTarget: GroupNavTarget | null;
+  setGroupNavTarget: (target: GroupNavTarget | null) => void;
 }
 
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
@@ -16,6 +23,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [activeTab, setActiveTabState] = useState<string>('tableaudebord');
   const [currentPage, setCurrentPage] = useState<string>('main');
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  const [groupNavTarget, setGroupNavTarget] = useState<GroupNavTarget | null>(null);
   const [history, setHistory] = useState<{ tab: string; page: string }[]>([
     { tab: 'tableaudebord', page: 'main' }
   ]);
@@ -67,14 +75,16 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   return (
-    <NavigationContext.Provider value={{ 
-      activeTab, 
-      setActiveTab, 
-      currentPage, 
-      setCurrentPage: navigateToPage, 
+    <NavigationContext.Provider value={{
+      activeTab,
+      setActiveTab,
+      currentPage,
+      setCurrentPage: navigateToPage,
       goBack,
       isMenuOpen,
-      setIsMenuOpen
+      setIsMenuOpen,
+      groupNavTarget,
+      setGroupNavTarget,
     }}>
       {children}
     </NavigationContext.Provider>

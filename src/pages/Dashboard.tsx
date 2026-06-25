@@ -10,7 +10,7 @@ import { WalletRechargeModal } from '../components/WalletRechargeModal';
 
 export const Dashboard: React.FC = () => {
   const { user, fetchMe } = useAuthContext();
-  const { setActiveTab, setCurrentPage } = useNavigation();
+  const { setActiveTab, setCurrentPage, setGroupNavTarget } = useNavigation();
   const { userGroups, fetchUserGroups } = useGroups();
   const [globalStats, setGlobalStats] = React.useState<any>(null);
   const [showRechargeModal, setShowRechargeModal] = useState(false);
@@ -110,7 +110,7 @@ export const Dashboard: React.FC = () => {
             Vos Tontines Actuelles
           </h3>
           {userGroups.map((g, i) => (
-            <Card key={i} className="space-y-4 relative overflow-hidden cursor-pointer" onClick={() => setActiveTab('groupes')}>
+            <Card key={i} className="space-y-4 relative overflow-hidden cursor-pointer" onClick={() => { setActiveTab('groupes'); setGroupNavTarget({ groupId: g.id, groupTab: 'mes-tontines' }); }}>
               {g.status === 'active' && <div className="absolute top-0 right-0 bg-green-500 text-white text-[8px] font-black px-2 py-1 rounded-bl-xl uppercase">En cours</div>}
               
               <div className="flex justify-between items-center pr-12">
