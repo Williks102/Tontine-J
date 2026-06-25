@@ -382,6 +382,19 @@ async function startServer() {
       p_positions: positions, p_joined_at: joinedAt, p_payment_id: `pay_group_${genId()}`
     });
     if (error) return res.status(400).json({ error: error.message });
+
+    // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
+    const { data: joiningUser } = await supabase.from('users').select('referred_by').eq('id', userId).single();
+    if (joiningUser?.referred_by) {
+      const { count } = await supabase.from('group_members').select('*', { count: 'exact', head: true }).eq('user_id', userId);
+      if (count === 1) {
+        const { data: referrer } = await supabase.from('users').select('balance').eq('id', joiningUser.referred_by).single();
+        if (referrer) {
+          await supabase.from('users').update({ balance: (referrer.balance || 0) + 1500 }).eq('id', joiningUser.referred_by);
+        }
+      }
+    }
+
     res.json({ success: true });
   });
 

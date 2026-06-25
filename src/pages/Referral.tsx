@@ -46,7 +46,7 @@ export const Referral: React.FC = () => {
   }, []);
 
   const referralCode = dynamicData?.referralCode || user?.referralCode || 'PRO-KOFFI';
-  const inviteLink = `https://tontine.pro/app/invite/${referralCode}`;
+  const inviteLink = `${window.location.origin}/invite/${referralCode}`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(inviteLink);
