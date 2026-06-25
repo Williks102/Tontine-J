@@ -23,6 +23,7 @@ import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminTontines } from './pages/admin/AdminTontines';
 import { AdminSettings } from './pages/admin/AdminSettings';
+import { AdminReferrals } from './pages/admin/AdminReferrals';
 
 const compressImage = (dataUrl: string, maxWidth = 800): Promise<string> => {
   return new Promise((resolve) => {
@@ -65,6 +66,23 @@ function InnerApp() {
   } = useAuthContext();
 
   const { activeTab, setActiveTab, currentPage, setCurrentPage } = useNavigation();
+
+  // Redirect admin users to their admin dashboard instead of the standard client dashboard
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'admin') {
+        const adminAllowedTabs = ['accueil', 'admin_activite', 'macarte', 'admin_tontines', 'admin_utilisateurs', 'admin_parametres', 'support', 'profil', 'admin_parrainages'];
+        if (!adminAllowedTabs.includes(activeTab)) {
+          setActiveTab('admin_activite');
+        }
+      } else {
+        const userAllowedTabs = ['accueil', 'tableaudebord', 'macarte', 'paiements', 'groupes', 'profil', 'support', 'parrainage'];
+        if (!userAllowedTabs.includes(activeTab)) {
+          setActiveTab('tableaudebord');
+        }
+      }
+    }
+  }, [user, activeTab, setActiveTab]);
 
   // --- Landing & Auth specific local UI states ---
   const [smsCode, setSmsCode] = useState('');
@@ -163,10 +181,54 @@ function InnerApp() {
     }
   };
 
+  const renderGuestView = () => (
+    <GuestView
+      user={user}
+      isRegistering={isRegistering}
+      setIsRegistering={setIsRegistering}
+      isLoggingIn={isLoggingIn}
+      setIsLoggingIn={setIsLoggingIn}
+      regStep={regStep}
+      setRegStep={setRegStep}
+      regData={regData}
+      setRegData={setRegData}
+      smsCode={smsCode}
+      setSmsCode={setSmsCode}
+      cameraError={cameraError}
+      setCameraError={setCameraError}
+      loginPhone={loginPhone}
+      setLoginPhone={setLoginPhone}
+      loginPasswordStr={loginPasswordStr}
+      setLoginPasswordStr={setLoginPasswordStr}
+      isLandingMenuOpen={isLandingMenuOpen}
+      setIsLandingMenuOpen={setIsLandingMenuOpen}
+      selectedLandingCategory={selectedLandingCategory}
+      setSelectedLandingCategory={setSelectedLandingCategory}
+      showLandingBellNotification={showLandingBellNotification}
+      setShowLandingBellNotification={setShowLandingBellNotification}
+      showLandingSupport={showLandingSupport}
+      setShowLandingSupport={setShowLandingSupport}
+      landingSupportChat={landingSupportChat}
+      setLandingSupportChat={setLandingSupportChat}
+      landingSupportCustomText={landingSupportCustomText}
+      setLandingSupportCustomText={setLandingSupportCustomText}
+      handleLogin={executeLogin}
+      isLoggingInAction={isLoggingInAction}
+      handleRegister={executeRegister}
+      isSubmitting={isSubmitting}
+      videoRef={videoRef}
+      canvasRef={canvasRef}
+      startCamera={startCamera}
+      captureSelfie={captureSelfie}
+    />
+  );
+
   const renderContent = () => {
     switch (activeTab) {
+      case 'accueil':
+        return renderGuestView();
       case 'tableaudebord':
-        return <Dashboard />;
+        return user?.role === 'admin' ? <AdminDashboard setViewingMember={setViewingMember} /> : <Dashboard />;
       case 'groupes':
         return <Groups />;
       case 'macarte':
@@ -187,53 +249,15 @@ function InnerApp() {
         return <AdminTontines />;
       case 'admin_parametres':
         return <AdminSettings />;
+      case 'admin_parrainages':
+        return <AdminReferrals />;
       default:
         return user?.role === 'admin' ? <AdminDashboard setViewingMember={setViewingMember} /> : <Dashboard />;
     }
   };
 
   if (!user) {
-    return (
-      <GuestView
-        user={user}
-        isRegistering={isRegistering}
-        setIsRegistering={setIsRegistering}
-        isLoggingIn={isLoggingIn}
-        setIsLoggingIn={setIsLoggingIn}
-        regStep={regStep}
-        setRegStep={setRegStep}
-        regData={regData}
-        setRegData={setRegData}
-        smsCode={smsCode}
-        setSmsCode={setSmsCode}
-        cameraError={cameraError}
-        setCameraError={setCameraError}
-        loginPhone={loginPhone}
-        setLoginPhone={setLoginPhone}
-        loginPasswordStr={loginPasswordStr}
-        setLoginPasswordStr={setLoginPasswordStr}
-        isLandingMenuOpen={isLandingMenuOpen}
-        setIsLandingMenuOpen={setIsLandingMenuOpen}
-        selectedLandingCategory={selectedLandingCategory}
-        setSelectedLandingCategory={setSelectedLandingCategory}
-        showLandingBellNotification={showLandingBellNotification}
-        setShowLandingBellNotification={setShowLandingBellNotification}
-        showLandingSupport={showLandingSupport}
-        setShowLandingSupport={setShowLandingSupport}
-        landingSupportChat={landingSupportChat}
-        setLandingSupportChat={setLandingSupportChat}
-        landingSupportCustomText={landingSupportCustomText}
-        setLandingSupportCustomText={setLandingSupportCustomText}
-        handleLogin={executeLogin}
-        isLoggingInAction={isLoggingInAction}
-        handleRegister={executeRegister}
-        isSubmitting={isSubmitting}
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        startCamera={startCamera}
-        captureSelfie={captureSelfie}
-      />
-    );
+    return renderGuestView();
   }
 
   return (

@@ -10,12 +10,20 @@ export const Dashboard: React.FC = () => {
   const { user } = useAuthContext();
   const { setActiveTab, setCurrentPage } = useNavigation();
   const { userGroups, fetchUserGroups } = useGroups();
+  const [globalStats, setGlobalStats] = React.useState<any>(null);
 
   useEffect(() => {
     if (user) {
       fetchUserGroups();
     }
   }, [user]);
+
+  useEffect(() => {
+    fetch('/api/global/stats')
+      .then(res => res.json())
+      .then(data => setGlobalStats(data))
+      .catch(err => console.error("Error loading SSOT stats:", err));
+  }, []);
 
   return (
     <div className="p-4 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 font-sans">
@@ -30,13 +38,31 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="flex-1">
           <h2 className="text-lg font-bold text-gray-800">Bonjour, {user?.firstName}</h2>
-          <p className="text-xs text-gray-500">{userGroups.length} tontine(s) active(s)</p>
+          <p className="text-xs text-gray-500">{userGroups.length} tontine(s) inscrite(s)</p>
         </div>
         <div className="text-right">
            <p className="text-[10px] text-gray-400 font-black uppercase">Solde</p>
            <p className="text-sm font-black text-[#6D28D9]">{user?.balance || 0} FCFA</p>
         </div>
       </div>
+
+      {/* Global SSOT Platform Metrics Widget (Dynamic and Shared) */}
+      {globalStats && (
+        <div className="grid grid-cols-3 gap-2.5">
+          <div className="bg-gradient-to-br from-[#FAF5FF] to-[#F3E8FF] border border-[#E9D5FF] p-3 rounded-2xl flex flex-col justify-between">
+            <span className="text-[8px] font-black uppercase text-purple-700 tracking-wider leading-none">Actives</span>
+            <p className="text-base font-black text-purple-950 mt-1">{globalStats.activeGroupsCount || 0} grp</p>
+          </div>
+          <div className="bg-gradient-to-br from-[#FEFBE8] to-[#FEF08A] border border-[#FEF08A] p-3 rounded-2xl flex flex-col justify-between">
+            <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider leading-none">Inscriptions</span>
+            <p className="text-base font-black text-amber-950 mt-1">{globalStats.openGroupsCount || 0} grp</p>
+          </div>
+          <div className="bg-gradient-to-br from-[#ECFDF5] to-[#A7F3D0] border border-[#A7F3D0] p-3 rounded-2xl flex flex-col justify-between">
+            <span className="text-[8px] font-black uppercase text-emerald-700 tracking-wider leading-none">Mises Sûres</span>
+            <p className="text-[11px] font-black text-emerald-950 mt-1">{(globalStats.totalVolumeCirculating || 0).toLocaleString()} F</p>
+          </div>
+        </div>
+      )}
 
       {userGroups.length === 0 ? (
         <Card className="text-center py-10 space-y-4">

@@ -26,6 +26,7 @@ export const Header: React.FC<{ viewingMember?: any; setViewingMember?: (val: an
 
   const getTitle = () => {
     if (viewingMember) return 'Profil Membre';
+    if (activeTab === 'accueil') return 'Accueil';
     if (activeTab === 'admin_activite') return 'Tableau de bord';
     if (activeTab === 'admin_utilisateurs') return 'Membres';
     if (activeTab === 'admin_tontines') return 'Groupes';

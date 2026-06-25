@@ -1,8 +1,8 @@
 import React from 'react';
 import { 
-  LayoutDashboard, LayoutGrid, CreditCard, Users, 
+  Home, LayoutDashboard, LayoutGrid, CreditCard, Users, 
   UserCircle, Headset, BarChart3, PiggyBank, Settings, 
-  ShieldCheck, LogOut 
+  ShieldCheck, LogOut, Share2 
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useNavigation } from '../../context/NavigationContext';
@@ -12,19 +12,23 @@ export const Sidebar: React.FC = () => {
   const { activeTab, setActiveTab, isMenuOpen, setIsMenuOpen, setCurrentPage } = useNavigation();
 
   const userTabs = [
+    { id: 'accueil', label: 'Accueil', icon: Home },
     { id: 'tableaudebord', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'macarte', label: 'Ma Carte', icon: LayoutGrid },
     { id: 'paiements', label: 'Paiements', icon: CreditCard },
     { id: 'groupes', label: 'Mes Groupes', icon: Users },
+    { id: 'parrainage', label: 'Parrainage', icon: Share2 },
     { id: 'profil', label: 'Profil', icon: UserCircle },
     { id: 'support', label: 'Support', icon: Headset },
   ];
 
   const adminTabs = [
+    { id: 'accueil', label: 'Accueil', icon: Home },
     { id: 'admin_activite', label: 'Aperçu', icon: BarChart3 },
     { id: 'macarte', label: 'Ma Carte', icon: LayoutGrid },
     { id: 'admin_tontines', label: 'Groupes', icon: PiggyBank },
     { id: 'admin_utilisateurs', label: 'Utilisateurs', icon: Users },
+    { id: 'admin_parrainages', label: 'Parrainages', icon: Share2 },
     { id: 'admin_parametres', label: 'Réglages', icon: Settings },
   ];
 

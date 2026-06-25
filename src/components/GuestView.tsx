@@ -1,9 +1,10 @@
 import React from 'react';
+import { useNavigation } from '../context/NavigationContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Home, Camera, Phone, User as UserIcon, ChevronRight, 
   ArrowLeft, MessageSquare, Users, Bell, Headset, UserPlus, 
-  Menu, Utensils, Banknote, Baby
+  Menu, Utensils, Banknote, Baby, ShieldCheck
 } from 'lucide-react';
 
 // Unified local Button matching main app style
@@ -35,7 +36,7 @@ interface GuestViewProps {
   setIsLoggingIn: (val: boolean) => void;
   regStep: number;
   setRegStep: (val: number | ((prev: number) => number)) => void;
-  regData: { firstName: string; phone: string; password?: string; selfie: string };
+  regData: { firstName: string; phone: string; password?: string; selfie: string; referredByCode?: string };
   setRegData: (data: any) => void;
   smsCode: string;
   setSmsCode: (code: string) => void;
@@ -110,6 +111,47 @@ export default function GuestView({
   startCamera,
   captureSelfie
 }: GuestViewProps) {
+  const { setActiveTab } = useNavigation();
+
+  // Helper to resolve high-quality images based on group category/name
+  const getGroupImage = (name: string, id: string): string => {
+    const query = (name + " " + id).toLowerCase();
+    if (query.includes('alimentaire')) {
+      return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+    }
+    if (query.includes('cash') || query.includes('argent') || query.includes('cache') || query.includes('réserve')) {
+      return 'https://images.unsplash.com/photo-1593526492327-b071f3d5333e?auto=format&fit=crop&w=600&q=80';
+    }
+    if (query.includes('baby') || query.includes('mama') || query.includes('maternité') || query.includes('maman')) {
+      return 'https://images.unsplash.com/photo-1555252333-9f8e92e65df9?auto=format&fit=crop&w=600&q=80';
+    }
+    if (query.includes('school') || query.includes('école') || query.includes('scolaire') || query.includes('classe')) {
+      return 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=600&q=80';
+    }
+    if (query.includes('immobilier') || query.includes('maison') || query.includes('terrain') || query.includes('villa') || query.includes('construction')) {
+      return 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=600&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=600&q=80';
+  };
+
+  const [dynamicGroups, setDynamicGroups] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetch('/api/groups')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setDynamicGroups(data);
+        }
+      })
+      .catch(err => console.error("Error loading groups:", err));
+  }, []);
+
+  const defaultGroupIds = ['group-alimentaire-01', 'group-cash-01', 'group-babymama-01', 'group-school-01'];
+  const hasCustomGroups = dynamicGroups.some(g => !defaultGroupIds.includes(g.id));
+  const displayedGroups = hasCustomGroups 
+    ? dynamicGroups.filter(g => !defaultGroupIds.includes(g.id))
+    : dynamicGroups;
 
   const LANDING_CATEGORIES = [
     {
@@ -268,25 +310,30 @@ export default function GuestView({
   const renderLandingContent = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center pb-24 overflow-x-hidden relative select-none font-sans">
-        {/* HEADER BRAND BANNER */}
-        <div className="w-full bg-[#3B0764] text-white pt-6 pb-12 px-5 rounded-b-[2.5rem] relative overflow-hidden shadow-2xl border-b-4 border-amber-400">
-          <div className="absolute top-[-30%] left-[-20%] w-80 h-80 bg-[#6D28D9]/40 rounded-full blur-3xl" />
-          <div className="absolute bottom-[-20%] right-[-10%] w-72 h-72 bg-amber-400/10 rounded-full blur-2xl" />
-          
-          <div className="flex justify-between items-center relative z-10">
-            <button 
-              onClick={() => setIsLandingMenuOpen(true)}
-              className="lg:hidden w-10 h-10 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-white hover:bg-white/20 active:scale-95 transition-all border border-white/10"
-            >
-              <Menu size={22} />
-            </button>
+        {/* HEADER BRAND BANNER (HERO REDESIGN) */}
+        <div className="w-full bg-gradient-to-br from-[#20013B] via-[#3B0764] to-[#5B0C9C] text-white pt-6 pb-16 px-5 rounded-b-[3.5rem] relative overflow-hidden shadow-2xl border-b-8 border-amber-400">
+          <div className="absolute top-[-20%] left-[-20%] w-96 h-96 bg-[#6D28D9]/30 rounded-full blur-3xl" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-80 h-80 bg-amber-400/10 rounded-full blur-3xl" />
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-white/2 rounded-full border border-white/5 pointer-events-none" />
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-white/2 rounded-full border border-white/5 pointer-events-none" />
+
+          {/* Top navigation row inside Hero */}
+          <div className="flex justify-between items-center relative z-10 max-w-5xl mx-auto w-full">
+            {!user && (
+              <button 
+                onClick={() => setIsLandingMenuOpen(true)}
+                className="w-11 h-11 bg-white/5 backdrop-blur-lg rounded-2xl flex items-center justify-center text-white hover:bg-white/10 active:scale-95 transition-all border border-white/10 shadow-md"
+              >
+                <Menu size={22} />
+              </button>
+            )}
             
             <div className="flex flex-col items-center flex-1 lg:items-start lg:pl-4">
               <div className="flex items-center gap-2">
-                <div className="w-9 h-9 bg-gradient-to-tr from-[#6D28D9] via-purple-500 to-amber-400 rounded-full flex items-center justify-center p-1.5 shadow-md">
-                  <Users size={18} className="text-white" />
+                <div className="w-10 h-10 bg-gradient-to-tr from-[#6D28D9] via-purple-500 to-amber-400 rounded-2xl flex items-center justify-center p-1.5 shadow-lg shadow-purple-950/50">
+                  <Users size={20} className="text-white" />
                 </div>
-                <span className="text-xl font-black tracking-wider uppercase">
+                <span className="text-2xl font-black tracking-wider uppercase">
                   Tontine<span className="text-amber-400">Pro</span>
                 </span>
               </div>
@@ -294,18 +341,62 @@ export default function GuestView({
 
             <button 
               onClick={() => setShowLandingBellNotification(true)}
-              className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-white hover:bg-white/20 active:scale-95 transition-all relative border border-white/10"
+              className="w-11 h-11 bg-white/5 backdrop-blur-lg rounded-2xl flex items-center justify-center text-white hover:bg-white/10 active:scale-95 transition-all relative border border-white/10 shadow-md"
             >
               <Bell size={20} />
-              <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
-              <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full" />
+              <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+              <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full" />
             </button>
           </div>
 
-          <div className="text-center mt-6 lg:text-left lg:pl-4 relative z-10 space-y-2">
-            <span className="text-[10px] font-black uppercase text-amber-300 tracking-[0.2em] bg-white/10 px-4 py-1.5 rounded-full inline-block backdrop-blur-md border border-white/5 shadow-sm">
-              Épargne simple, sécurisée, entre nous.
+          {/* Core Hero Content */}
+          <div className="text-center mt-10 max-w-xl mx-auto relative z-10 space-y-6">
+            <span className="text-[10px] font-black uppercase text-amber-300 tracking-[0.25em] bg-white/5 px-4 py-2 rounded-full inline-flex items-center gap-1.5 backdrop-blur-md border border-white/10 shadow-inner">
+              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              L'ÉPARGNE INTELLIGENTE & 100% SÉCURISÉE
             </span>
+
+            <h1 className="text-3xl md:text-4xl font-black text-white leading-tight tracking-tight uppercase px-2">
+              Multipliez vos projets, pas votre stress financier
+            </h1>
+
+            <p className="text-xs md:text-sm text-purple-200 leading-relaxed font-semibold max-w-md mx-auto px-4">
+              Rejoignez l'application de tontine digitale n°1. Épargnez en groupe en toute de confiance pour la rentrée, l'alimentation, un capital ou l'immobilier, avec retraits sécurisés par Mobile Money.
+            </p>
+
+            {/* Quick Access CTAs */}
+            <div className="flex flex-col sm:flex-row gap-4 px-4 pt-2 max-w-sm mx-auto">
+              <button 
+                onClick={() => { setIsRegistering(true); setIsLoggingIn(false); setRegStep(1); }}
+                className="w-full bg-amber-400 hover:bg-amber-500 text-[#20013B] text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl shadow-xl shadow-amber-400/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border-0"
+              >
+                <UserPlus size={16} strokeWidth={3} />
+                Créer mon compte libre
+              </button>
+              <button 
+                onClick={() => { setIsLoggingIn(true); setIsRegistering(false); }}
+                className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ChevronRight size={16} strokeWidth={3} />
+                Se connecter
+              </button>
+            </div>
+
+            {/* Micro Trust Stats */}
+            <div className="grid grid-cols-3 gap-2.5 pt-6 max-w-md mx-auto border-t border-white/5 text-center">
+              <div>
+                <p className="text-base font-black text-amber-400 leading-none">15 000+</p>
+                <p className="text-[8px] text-purple-200 uppercase font-black tracking-widest mt-1">Épargnants</p>
+              </div>
+              <div className="border-x border-white/5">
+                <p className="text-base font-black text-amber-400 leading-none">0%</p>
+                <p className="text-[8px] text-purple-200 uppercase font-black tracking-widest mt-1">Défauts admis</p>
+              </div>
+              <div>
+                <p className="text-base font-black text-amber-400 leading-none">99.8%</p>
+                <p className="text-[8px] text-purple-200 uppercase font-black tracking-widest mt-1">Garantis</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -319,36 +410,134 @@ export default function GuestView({
         </div>
 
         {/* VERTICAL LIST */}
-        <div className="w-full px-4 max-w-md space-y-4">
-          {LANDING_CATEGORIES.map((cat, i) => (
-            <div 
-              key={cat.id}
-              onClick={() => {
-                setSelectedLandingCategory(cat);
-                if (landingSupportChat.length === 0) {
-                  setLandingSupportChat([{ sender: 'bot', text: "Bonjour ! Je suis l'assistant intelligent TontinePro. Des questions sur nos offres ou besoin d'aide pour débuter? Posez vos questions ci-dessous ou cliquez sur un sujet !" }]);
-                }
-              }}
-              className="flex justify-between items-center text-left py-4 px-5 relative h-28 rounded-3xl overflow-hidden bg-gradient-to-r from-[#20013B] via-[#35035E] to-[#50088A] border border-purple-900/40 shadow-xl shadow-purple-950/5 hover:-translate-y-1 active:scale-[0.98] transition-all duration-300 cursor-pointer group"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:bg-white/10 transition-all pointer-events-none" />
+        <div className="w-full px-4 max-w-md space-y-6">
+          {hasCustomGroups ? (
+            displayedGroups.map((g, i) => {
+              const productImage = getGroupImage(g.name, g.id);
+              const spacesLeft = g.maxMembers - (g.currentMembersCount || 0);
+              const progressPercent = Math.min(100, Math.round(((g.currentMembersCount || 0) / g.maxMembers) * 100));
+              const totalPayout = g.stake * g.maxMembers;
               
-              <div className="flex-1 space-y-1.5 z-10 pr-2">
-                <span className="text-[9px] font-black tracking-widest text-[#D8B4FE] uppercase">Tontine Pro</span>
-                <h3 className="text-lg font-black tracking-tight text-amber-300 uppercase leading-none">{cat.tagline}</h3>
-                <p className="text-[10px] text-gray-200/90 font-bold leading-normal max-w-[200px] line-clamp-2">{cat.description}</p>
-              </div>
+              return (
+                <div
+                  key={g.id || i}
+                  className="bg-white rounded-[2rem] overflow-hidden border border-gray-200/80 shadow-lg hover:shadow-2xl hover:-translate-y-1 active:scale-[0.99] transition-all duration-300 flex flex-col relative group"
+                >
+                  <div className="relative aspect-[4/3] w-full bg-[#1C0032] overflow-hidden">
+                    <img
+                      src={productImage}
+                      alt={g.name}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
+                    
+                    <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10">
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${g.status === 'active' ? 'bg-emerald-100 text-emerald-850 border-emerald-200' : 'bg-purple-100 text-[#3B0764] border-purple-200'} shadow-md`}>
+                        {g.status === 'active' ? "Tontine Active & Complète" : "Nouveau Groupe Ouvert"}
+                      </span>
+                    </div>
 
-              <div className="flex shrink-0 items-center gap-3 z-10">
-                <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/15 select-none shadow-md bg-purple-950">
-                  <img src={cat.image} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" referrerPolicy="no-referrer" />
+                    <div className="absolute bottom-4 left-4 right-4 text-white z-10 flex justify-between items-end">
+                      <div className="text-left">
+                        <p className="text-[9px] text-[#D8B4FE] uppercase font-black tracking-widest leading-none mb-1">Cagnotte Globale</p>
+                        <p className="text-xl font-black text-amber-300 drop-shadow-md leading-none">{totalPayout.toLocaleString()} FCFA</p>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/10 text-right">
+                        <p className="text-[8px] text-gray-300 font-bold uppercase leading-none">Com. Pro</p>
+                        <p className="text-[10px] font-black text-emerald-400 mt-0.5">10%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4 text-left">
+                    <div className="space-y-1">
+                      <h3 className="text-base font-black text-gray-800 line-clamp-1 group-hover:text-[#3B0764] transition-all">{g.name}</h3>
+                      
+                      <div className="flex items-baseline gap-2 pt-1">
+                        <span className="text-lg font-black text-[#3B0764]">{g.stake.toLocaleString()} F</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">/ cycle</span>
+                        <div className="ml-auto text-[10px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          Chaque {g.durationDays} j
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex justify-between items-center text-[10px] font-bold">
+                        <span className="text-gray-505 uppercase">Stock de places restant</span>
+                        <span className="text-gray-800 font-mono font-black">{g.currentMembersCount || 0} / {g.maxMembers}</span>
+                      </div>
+                      <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full rounded-full bg-[#3B0764] transition-all duration-500"
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      {g.status === 'active' || spacesLeft <= 0 ? (
+                        <button
+                          className="w-full py-3.5 bg-gray-100 text-gray-400 flex items-center justify-center gap-2 font-black uppercase tracking-wider text-xs rounded-2xl cursor-not-allowed border-0"
+                          disabled
+                        >
+                          <ShieldCheck size={14} />
+                          Tontine Active & Complète
+                        </button>
+                      ) : (
+                        <button
+                          className="w-full py-3.5 bg-[#3B0764] hover:bg-[#2C054D] text-white flex items-center justify-center gap-2 font-black uppercase tracking-wider text-xs rounded-2xl active:scale-95 transition-all shadow-md cursor-pointer border-0"
+                          onClick={(e: any) => {
+                            e.stopPropagation();
+                            if (user) {
+                              setActiveTab('groupes');
+                            } else {
+                              setIsRegistering(true);
+                              setIsLoggingIn(false);
+                              setRegStep(1);
+                            }
+                          }}
+                        >
+                          Acheter une place
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="w-8 h-8 rounded-full bg-amber-400 text-[#20013B] flex items-center justify-center font-bold shadow-md group-hover:scale-110 active:scale-90 transition-all">
-                  <ChevronRight size={18} strokeWidth={2.5} />
+              );
+            })
+          ) : (
+            LANDING_CATEGORIES.map((cat, i) => (
+              <div 
+                key={cat.id}
+                onClick={() => {
+                  setSelectedLandingCategory(cat);
+                  if (landingSupportChat.length === 0) {
+                    setLandingSupportChat([{ sender: 'bot', text: "Bonjour ! Je suis l'assistant intelligent TontinePro. Des questions sur nos offres ou besoin d'aide pour débuter? Posez vos questions ci-dessous ou cliquez sur un sujet !" }]);
+                  }
+                }}
+                className="flex justify-between items-center text-left py-4 px-5 relative h-28 rounded-3xl overflow-hidden bg-gradient-to-r from-[#20013B] via-[#35035E] to-[#50088A] border border-purple-900/40 shadow-xl shadow-purple-950/5 hover:-translate-y-1 active:scale-[0.98] transition-all duration-300 cursor-pointer group"
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:bg-white/10 transition-all pointer-events-none" />
+                
+                <div className="flex-1 space-y-1.5 z-10 pr-2">
+                  <span className="text-[9px] font-black tracking-widest text-[#D8B4FE] uppercase">Tontine Pro</span>
+                  <h3 className="text-lg font-black tracking-tight text-amber-300 uppercase leading-none">{cat.tagline}</h3>
+                  <p className="text-[10px] text-gray-200/90 font-bold leading-normal max-w-[200px] line-clamp-2">{cat.description}</p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3 z-10">
+                  <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/15 select-none shadow-md bg-purple-950">
+                    <img src={cat.image} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" referrerPolicy="no-referrer" />
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-amber-400 text-[#20013B] flex items-center justify-center font-bold shadow-md group-hover:scale-110 active:scale-90 transition-all">
+                    <ChevronRight size={18} strokeWidth={2.5} />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
 
           {/* LOWER ASSISTANCE FOOTER */}
           <div className="bg-white border border-gray-100 rounded-[2rem] p-5 shadow-lg shadow-gray-200/50 mt-10 space-y-4">
@@ -511,19 +700,34 @@ export default function GuestView({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <Button 
-                    variant="ghost" 
-                    onClick={() => { setSelectedLandingCategory(null); setIsLoggingIn(true); setIsRegistering(false); }}
-                  >
-                    Connexion
-                  </Button>
-                  <Button 
-                    variant="primary" 
-                    onClick={() => { setSelectedLandingCategory(null); setIsRegistering(true); setIsLoggingIn(false); setRegStep(1); }}
-                  >
-                    Rejoindre
-                  </Button>
+                <div className="pt-2">
+                  {user ? (
+                    <Button 
+                      variant="primary" 
+                      className="w-full"
+                      onClick={() => { 
+                        setSelectedLandingCategory(null); 
+                        setActiveTab('groupes'); 
+                      }}
+                    >
+                      Rejoindre un groupe de cette catégorie
+                    </Button>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button 
+                        variant="ghost" 
+                        onClick={() => { setSelectedLandingCategory(null); setIsLoggingIn(true); setIsRegistering(false); }}
+                      >
+                        Connexion
+                      </Button>
+                      <Button 
+                        variant="primary" 
+                        onClick={() => { setSelectedLandingCategory(null); setIsRegistering(true); setIsLoggingIn(false); setRegStep(1); }}
+                      >
+                        Rejoindre
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </div>
@@ -855,6 +1059,15 @@ export default function GuestView({
                     onChange={(e) => setRegData({ ...regData, password: e.target.value })}
                   />
                 </div>
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 font-bold">Code de parrainage (Optionnel) :</p>
+                  <input 
+                    type="text" placeholder="Ex: PRO-KOFFI"
+                    className="w-full bg-gray-50 p-4 px-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold uppercase"
+                    value={regData.referredByCode || ''}
+                    onChange={(e) => setRegData({ ...regData, referredByCode: e.target.value })}
+                  />
+                </div>
                 <Button variant="primary" className="w-full py-5 text-lg" disabled={!regData.phone || !regData.password} onClick={() => setRegStep(4)}>M'envoyer le code</Button>
               </motion.div>
             )}
@@ -909,6 +1122,14 @@ export default function GuestView({
       </div>
     );
   };
+
+  if (user) {
+    return (
+      <div className="w-full">
+        {renderLandingContent()}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 selection:bg-[#3B0764]/10 relative">

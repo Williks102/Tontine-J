@@ -2,7 +2,21 @@ import { useState } from 'react';
 import { authFetch } from './useAuth';
 
 export const useAdminData = () => {
-  const [stats, setStats] = useState({ totalUsers: 0, totalTontines: 0, totalMoney: 0 });
+  const [stats, setStats] = useState<{
+    totalUsers: number;
+    totalTontines: number;
+    totalMoney: number;
+    cardComTotal?: number;
+    tontineComTotal?: number;
+    commissionsHistory?: any[];
+  }>({
+    totalUsers: 0,
+    totalTontines: 0,
+    totalMoney: 0,
+    cardComTotal: 0,
+    tontineComTotal: 0,
+    commissionsHistory: []
+  });
   const [users, setUsers] = useState<any[]>([]);
   const [tontines, setTontines] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
