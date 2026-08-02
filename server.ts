@@ -549,6 +549,7 @@ async function startServer() {
   });
 
   app.get("/api/groups/:id", async (req, res) => {
+    if (!getUserIdFromRequest(req)) return res.status(401).json({ error: "Non autorisé. Connexion requise." });
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [req.params.id]);
     if (!group) return res.status(404).json({ error: "Groupe introuvable" });
     const memberRows = await query(
