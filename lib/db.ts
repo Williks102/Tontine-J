@@ -29,6 +29,30 @@ export const query = async (text: string, params: any[] = []): Promise<any[]> =>
   return result.rows
 }
 
+export type TxQuery = (text: string, params?: any[]) => Promise<any[]>
+
+// Exécute plusieurs requêtes dans une transaction Postgres réelle (BEGIN /
+// COMMIT / ROLLBACK) sur une connexion dédiée du pool, plutôt que la
+// connexion aléatoire qu'utilise query() à chaque appel. Nécessaire pour
+// les mouvements d'argent : un solde relu puis réécrit à travers plusieurs
+// requêtes indépendantes est vulnérable à des écritures concurrentes qui
+// s'écrasent l'une l'autre.
+export const withTransaction = async <T>(fn: (tx: TxQuery) => Promise<T>): Promise<T> => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const tx: TxQuery = async (text, params = []) => (await client.query(text, params)).rows
+    const result = await fn(tx)
+    await client.query('COMMIT')
+    return result
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
 // Transforme les clés snake_case en camelCase de façon récursive
 export const camelizeKeys = (obj: any): any => {
   if (Array.isArray(obj)) return obj.map(camelizeKeys)

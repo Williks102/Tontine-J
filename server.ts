@@ -8,7 +8,7 @@ import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
-import { query, camelizeKeys, toPublicUser } from "./lib/db";
+import { query, camelizeKeys, toPublicUser, withTransaction } from "./lib/db";
 
 dotenv.config();
 
@@ -274,28 +274,32 @@ async function startServer() {
         });
       }
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!userData || (userData.balance || 0) < card.daily_amount) {
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [card.daily_amount, userId]
+        );
+        if (!updated) return null;
+
+        const paymentId = `pay_${genId()}`;
+        await tx(
+          `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, FALSE)`,
+          [paymentId, cardId, dayIndex, card.daily_amount]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'card_payment', -card.daily_amount,
+            `Cotisation carte — Jour ${dayIndex + 1}`, 'completed', new Date().toISOString()]
+        );
+        return updated.balance;
+      });
+
+      if (newBalance === null) {
         return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
-
-      const paymentId = `pay_${genId()}`;
-      await query(
-        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, FALSE)`,
-        [paymentId, cardId, dayIndex, card.daily_amount]
-      );
-
-      const newBalance = (userData.balance || 0) - card.daily_amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'card_payment', -card.daily_amount,
-          `Cotisation carte — Jour ${dayIndex + 1}`, 'completed', new Date().toISOString()]
-      );
-
       res.json({ success: true, newBalance });
-    } catch (e: any) { res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
   });
 
   app.post("/api/my-cards/:id/withdraw", async (req, res) => {
@@ -322,21 +326,32 @@ async function startServer() {
       const payout = total - commission;
       const now = new Date().toISOString();
 
-      await query(
-        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission, paid_at) VALUES ($1, $2, -1, $3, TRUE, $4)`,
-        [`pay_${genId()}`, cardId, commission, now]
-      );
+      const newBalance = await withTransaction(async (tx) => {
+        // Verrouille la ligne et re-vérifie le statut pour empêcher un
+        // double retrait déclenché par deux requêtes concurrentes.
+        const [lockedCard] = await tx(`SELECT status FROM my_cards WHERE id = $1 FOR UPDATE`, [cardId]);
+        if (!lockedCard || lockedCard.status === 'completed') return null;
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      const newBalance = (userData?.balance || 0) + payout;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'card_withdrawal', payout, `Retrait carte : ${card.title}`, 'completed', now]
-      );
-      await query(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
+        await tx(
+          `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission, paid_at) VALUES ($1, $2, -1, $3, TRUE, $4)`,
+          [`pay_${genId()}`, cardId, commission, now]
+        );
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance + $1 WHERE id = $2 RETURNING balance`,
+          [payout, userId]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'card_withdrawal', payout, `Retrait carte : ${card.title}`, 'completed', now]
+        );
+        await tx(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
+        return updated.balance;
+      });
 
+      if (newBalance === null) {
+        return res.status(400).json({ error: "Cette carte a déjà été clôturée." });
+      }
       res.json({ success: true, payout, commission, newBalance });
     } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
@@ -377,16 +392,21 @@ async function startServer() {
     if (!amount || amount < 500) return res.status(400).json({ error: "Montant minimum: 500 FCFA" });
     if (amount > 1000000) return res.status(400).json({ error: "Montant maximum: 1 000 000 FCFA" });
     try {
-      const [user] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-      const newBalance = (user.balance || 0) + amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'recharge', amount,
-          `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`, 'completed', new Date().toISOString()]
-      );
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance + $1 WHERE id = $2 RETURNING balance`,
+          [amount, userId]
+        );
+        if (!updated) return null;
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'recharge', amount,
+            `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`, 'completed', new Date().toISOString()]
+        );
+        return updated.balance;
+      });
+      if (newBalance === null) return res.status(404).json({ error: "Utilisateur non trouvé" });
       res.json({ success: true, newBalance, amount });
     } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
@@ -437,8 +457,7 @@ async function startServer() {
         const [referrer] = await query(`SELECT id, first_name FROM users WHERE referral_code ILIKE $1`, [refCode]);
         if (referrer) {
           validatedReferredBy = referrer.id;
-          const [ref] = await query(`SELECT balance FROM users WHERE id = $1`, [referrer.id]);
-          await query(`UPDATE users SET balance = $1 WHERE id = $2`, [(ref?.balance || 0) + 500, referrer.id]);
+          await query(`UPDATE users SET balance = balance + 500 WHERE id = $1`, [referrer.id]);
         }
       }
 
@@ -594,36 +613,49 @@ async function startServer() {
     }
 
     const joinedAt = new Date().toISOString();
+    let newBalance: number;
     try {
-      await query(`SELECT rpc_join_group($1, $2, $3, $4, $5, $6)`, [
-        genId(), groupId, userId, positions, joinedAt, `pay_group_${genId()}`
-      ]);
+      // rpc_join_group (verrouillage + insertion) et le débit du solde sont
+      // exécutés dans la même transaction Postgres : si le solde est
+      // insuffisant au moment du débit atomique, l'adhésion créée par le RPC
+      // est elle aussi annulée (ROLLBACK), pas de groupe rejoint sans paiement.
+      newBalance = await withTransaction(async (tx) => {
+        await tx(`SELECT rpc_join_group($1, $2, $3, $4, $5, $6)`, [
+          genId(), groupId, userId, positions, joinedAt, `pay_group_${genId()}`
+        ]);
+
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [totalCost, userId]
+        );
+        if (!updated) throw new Error("INSUFFICIENT_BALANCE");
+
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'group_join', -totalCost,
+            `Adhésion tontine: ${group.name} (${positions} bras)`, 'completed', joinedAt]
+        );
+
+        // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
+        const [joiningUser] = await tx(`SELECT referred_by FROM users WHERE id = $1`, [userId]);
+        if (joiningUser?.referred_by) {
+          const [{ count }] = await tx(`SELECT COUNT(*)::int AS count FROM group_members WHERE user_id = $1`, [userId]);
+          if (count === 1) {
+            await tx(`UPDATE users SET balance = balance + 1500 WHERE id = $1`, [joiningUser.referred_by]);
+          }
+        }
+
+        return updated.balance;
+      });
     } catch (error: any) {
+      if (error.message === "INSUFFICIENT_BALANCE") {
+        return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
+      }
       // rpc_join_group ne lève que des exceptions métier volontaires
       // (ex: "Vous êtes déjà membre de ce groupe."), sûres à afficher telles
       // quelles — pas une fuite d'erreur interne.
       return res.status(400).json({ error: error.message });
-    }
-
-    const newBalance = (userData.balance || 0) - totalCost;
-    await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-    await query(
-      `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [`txn_${genId()}`, userId, 'group_join', -totalCost,
-        `Adhésion tontine: ${group.name} (${positions} bras)`, 'completed', joinedAt]
-    );
-
-    // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
-    const [joiningUser] = await query(`SELECT referred_by FROM users WHERE id = $1`, [userId]);
-    if (joiningUser?.referred_by) {
-      const [{ count }] = await query(`SELECT COUNT(*)::int AS count FROM group_members WHERE user_id = $1`, [userId]);
-      if (count === 1) {
-        const [referrer] = await query(`SELECT balance FROM users WHERE id = $1`, [joiningUser.referred_by]);
-        if (referrer) {
-          await query(`UPDATE users SET balance = $1 WHERE id = $2`, [(referrer.balance || 0) + 1500, joiningUser.referred_by]);
-        }
-      }
     }
 
     res.json({ success: true, newBalance });
@@ -646,25 +678,30 @@ async function startServer() {
       const amount = group.stake * (membership.positions || 1);
       const commission = Math.round(amount * 0.1);
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!userData || (userData.balance || 0) < amount) {
+      const now = new Date().toISOString();
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [amount, userId]
+        );
+        if (!updated) return null;
+
+        await tx(
+          `INSERT INTO payments (id, group_id, user_id, amount, commission, status, timestamp)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`pay_period_${genId()}`, groupId, userId, amount, commission, 'completed', now]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'group_payment', -amount, `Cotisation tontine: ${group.name}`, 'completed', now]
+        );
+        return updated.balance;
+      });
+
+      if (newBalance === null) {
         return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
-
-      const now = new Date().toISOString();
-      const newBalance = (userData.balance || 0) - amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO payments (id, group_id, user_id, amount, commission, status, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`pay_period_${genId()}`, groupId, userId, amount, commission, 'completed', now]
-      );
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'group_payment', -amount, `Cotisation tontine: ${group.name}`, 'completed', now]
-      );
-
       res.json({ success: true, newBalance, amount });
     } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
