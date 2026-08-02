@@ -188,21 +188,37 @@ async function startServer() {
   app.post("/api/my-cards/:id/pay", async (req, res) => {
     const userId = getUserIdFromRequest(req);
     const cardId = req.params.id;
-    const { dayIndex } = req.body;
+    const dayIndex = parseInt(String(req.body.dayIndex));
     try {
       const [card] = await query(`SELECT * FROM my_cards WHERE id = $1`, [cardId]);
       if (!card || card.user_id !== userId) return res.status(404).json({ error: "Carte non trouvée" });
+      if (card.status === 'completed') return res.status(400).json({ error: "Cette carte est clôturée." });
+
+      if (isNaN(dayIndex) || dayIndex < 0 || dayIndex >= card.total_days) {
+        return res.status(400).json({ error: "Case invalide." });
+      }
+
+      // Remplissage strictement séquentiel : seule la prochaine case non
+      // payée peut être cotisée, impossible d'en sauter une.
+      const [{ paidCount }] = await query(
+        `SELECT COUNT(*)::int AS "paidCount" FROM card_payments WHERE card_id = $1 AND day_index >= 0`,
+        [cardId]
+      );
+      if (dayIndex !== paidCount) {
+        return res.status(400).json({
+          error: `Vous devez cotiser les cases dans l'ordre. Prochaine case à payer : ${paidCount + 1}.`
+        });
+      }
 
       const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
       if (!userData || (userData.balance || 0) < card.daily_amount) {
         return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
 
-      const isCommission = dayIndex === (card.total_days - 1);
       const paymentId = `pay_${genId()}`;
       await query(
-        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, $5)`,
-        [paymentId, cardId, dayIndex, card.daily_amount, isCommission]
+        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, FALSE)`,
+        [paymentId, cardId, dayIndex, card.daily_amount]
       );
 
       const newBalance = (userData.balance || 0) - card.daily_amount;
@@ -211,15 +227,54 @@ async function startServer() {
         `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [`txn_${genId()}`, userId, 'card_payment', -card.daily_amount,
-          `Cotisation carte — Jour ${dayIndex + 1}${isCommission ? ' (frais de gestion)' : ''}`,
-          'completed', new Date().toISOString()]
+          `Cotisation carte — Jour ${dayIndex + 1}`, 'completed', new Date().toISOString()]
       );
 
-      if (isCommission) {
-        await query(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
-      }
-      res.json({ success: true, isCommission, newBalance });
+      res.json({ success: true, newBalance });
     } catch (e: any) { res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
+  });
+
+  app.post("/api/my-cards/:id/withdraw", async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: "Non autorisé" });
+    const cardId = req.params.id;
+    try {
+      const [card] = await query(`SELECT * FROM my_cards WHERE id = $1`, [cardId]);
+      if (!card || card.user_id !== userId) return res.status(404).json({ error: "Carte non trouvée" });
+      if (card.status === 'completed') return res.status(400).json({ error: "Cette carte a déjà été clôturée." });
+
+      const [{ total }] = await query(
+        `SELECT COALESCE(SUM(amount), 0)::int AS total FROM card_payments WHERE card_id = $1 AND day_index >= 0`,
+        [cardId]
+      );
+      if (!total) {
+        return res.status(400).json({ error: "Aucune cotisation à retirer pour l'instant." });
+      }
+
+      // L'administrateur retient toujours l'équivalent d'une mise en
+      // commission de service, que le retrait ait lieu en cours ou en fin
+      // de carte.
+      const commission = Math.min(card.daily_amount, total);
+      const payout = total - commission;
+      const now = new Date().toISOString();
+
+      await query(
+        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission, paid_at) VALUES ($1, $2, -1, $3, TRUE, $4)`,
+        [`pay_${genId()}`, cardId, commission, now]
+      );
+
+      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
+      const newBalance = (userData?.balance || 0) + payout;
+      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
+      await query(
+        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [`txn_${genId()}`, userId, 'card_withdrawal', payout, `Retrait carte : ${card.title}`, 'completed', now]
+      );
+      await query(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
+
+      res.json({ success: true, payout, commission, newBalance });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.delete("/api/my-cards/:id", async (req, res) => {
