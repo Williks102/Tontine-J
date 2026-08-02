@@ -5,7 +5,7 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
-import { supabase, camelizeKeys } from "./lib/supabase";
+import { supabase, camelizeKeys, toPublicUser } from "./lib/supabase";
 
 dotenv.config();
 
@@ -16,6 +16,12 @@ if (JWT_SECRET === "tontine-pro-secret-key-123456") {
 
 const genId = () => Math.random().toString(36).substr(2, 9);
 const normalizePhone = (phone: string) => phone.replace(/[\s\(\)\-\.]/g, '');
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 6;
+
+// Détecte si un identifiant de connexion est un e-mail ou un numéro de téléphone
+const isEmailLike = (identifier: string) => identifier.includes('@');
 
 const getUserIdFromRequest = (req: any): string | null => {
   const authHeader = req.headers['authorization'] as string;
@@ -87,17 +93,18 @@ async function seedIfNeeded() {
     const hash = bcrypt.hashSync(adminPassword, 10);
     await supabase.from('users').insert({
       id: 'admin-001', first_name: 'Admin', phone: adminPhone,
-      password: adminPassword, password_hash: hash,
+      password_hash: hash,
       referral_code: 'PRO-ADMIN', role: 'admin'
     });
   }
 
-  // Utilisateur test
+  // Utilisateur test (mot de passe par défaut: "test1234")
   const { data: testExists } = await supabase
     .from('users').select('id').eq('phone', '+22501010101').maybeSingle();
   if (!testExists) {
     await supabase.from('users').insert({
       id: 'test-001', first_name: 'Koffi', phone: '+22501010101',
+      password_hash: bcrypt.hashSync('test1234', 10),
       referral_code: 'PRO-KOFFI', role: 'user'
     });
   }
@@ -254,19 +261,34 @@ async function startServer() {
   // --- Auth / Utilisateurs ---
 
   app.post("/api/register", async (req, res) => {
-    let { firstName, phone, password, selfieUrl, referredByCode } = req.body;
+    let { firstName, phone, email, password, selfieUrl, referredByCode } = req.body;
     firstName = firstName?.trim();
-    const cleanPhone = normalizePhone(phone || '');
-    if (!firstName || !cleanPhone) {
-      return res.status(400).json({ error: "Prénom et téléphone requis" });
+    const cleanPhone = phone ? normalizePhone(phone) : null;
+    const cleanEmail = email ? normalizeEmail(email) : null;
+
+    if (!firstName || (!cleanPhone && !cleanEmail)) {
+      return res.status(400).json({ error: "Prénom et (e-mail ou téléphone) requis" });
     }
+    if (cleanEmail && !EMAIL_REGEX.test(cleanEmail)) {
+      return res.status(400).json({ error: "Adresse e-mail invalide." });
+    }
+    if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.` });
+    }
+
     const id = genId();
     const myReferralCode = `PRO-${genId().toUpperCase()}`;
     try {
-      const { data: existing } = await supabase.from('users').select('id').eq('phone', cleanPhone).maybeSingle();
-      if (existing) return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé." });
+      if (cleanPhone) {
+        const { data: existingPhone } = await supabase.from('users').select('id').eq('phone', cleanPhone).maybeSingle();
+        if (existingPhone) return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé." });
+      }
+      if (cleanEmail) {
+        const { data: existingEmail } = await supabase.from('users').select('id').eq('email', cleanEmail).maybeSingle();
+        if (existingEmail) return res.status(400).json({ error: "Cette adresse e-mail est déjà utilisée." });
+      }
 
-      const passwordHash = password ? bcrypt.hashSync(password, 10) : null;
+      const passwordHash = bcrypt.hashSync(String(password), 10);
 
       let validatedReferredBy = null;
       if (referredByCode) {
@@ -281,8 +303,8 @@ async function startServer() {
       }
 
       const { error } = await supabase.from('users').insert({
-        id, first_name: firstName, phone: cleanPhone,
-        password: password || null, password_hash: passwordHash,
+        id, first_name: firstName, phone: cleanPhone, email: cleanEmail,
+        password_hash: passwordHash,
         selfie_url: selfieUrl, referral_code: myReferralCode,
         role: 'user', referred_by: validatedReferredBy
       });
@@ -290,50 +312,37 @@ async function startServer() {
 
       const { data: user } = await supabase.from('users').select('*').eq('id', id).single();
       const token = jwt.sign({ id: user!.id, phone: user!.phone, role: user!.role }, JWT_SECRET, { expiresIn: '7d' });
-      res.json({ token, phone: user!.phone, user: camelizeKeys(user) });
+      res.json({ token, phone: user!.phone, user: toPublicUser(user) });
     } catch (error: any) {
       res.status(500).json({ error: "Une erreur est survenue lors de l'enregistrement." });
     }
   });
 
   app.post("/api/login", async (req, res) => {
-    const { phone, password } = req.body;
-    const cleanPhone = normalizePhone(phone || '');
-    console.log(`Login attempt for phone: [${cleanPhone}]`);
-    let { data: user } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
-
-    if (!user) {
-      console.log(`Utilisateur [${cleanPhone}] non trouvé. Auto-inscription sandbox...`);
-      const id = genId();
-      const referralCode = `PRO-${genId().toUpperCase()}`;
-      const name = "Épargnant " + (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : cleanPhone);
-      const passwordHash = password ? bcrypt.hashSync(password, 10) : null;
-      const { error } = await supabase.from('users').insert({
-        id, first_name: name, phone: cleanPhone,
-        password: password || null, password_hash: passwordHash,
-        referral_code: referralCode, role: 'user', balance: 100000
-      });
-      if (!error) {
-        const { data: newUser } = await supabase.from('users').select('*').eq('id', id).single();
-        user = newUser;
-      }
+    const { identifier, phone, email, password } = req.body;
+    const rawIdentifier = String(identifier || email || phone || '').trim();
+    if (!rawIdentifier || !password) {
+      return res.status(400).json({ error: "Identifiant (e-mail ou téléphone) et mot de passe requis." });
     }
 
-    if (user) {
+    const genericError = { error: "Identifiants incorrects." };
+    try {
+      const query = isEmailLike(rawIdentifier)
+        ? supabase.from('users').select('*').eq('email', normalizeEmail(rawIdentifier)).maybeSingle()
+        : supabase.from('users').select('*').eq('phone', normalizePhone(rawIdentifier)).maybeSingle();
+      const { data: user } = await query;
+
+      if (!user || !user.password_hash) return res.status(401).json(genericError);
       if (user.is_banned) {
         return res.status(403).json({ error: "Votre compte a été banni. Veuillez contacter l'administration." });
       }
-      if (password) {
-        let isMatch = false;
-        if (user.password_hash) isMatch = bcrypt.compareSync(password, user.password_hash);
-        else if (user.password) isMatch = (user.password === password);
-        else isMatch = true;
-        if (!isMatch) return res.status(400).json({ error: "Mot de passe incorrect" });
-      }
+      const isMatch = bcrypt.compareSync(String(password), user.password_hash);
+      if (!isMatch) return res.status(401).json(genericError);
+
       const token = jwt.sign({ id: user.id, phone: user.phone, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-      res.json({ token, phone: user.phone, user: camelizeKeys(user) });
-    } else {
-      res.status(404).json({ error: "Utilisateur non trouvé" });
+      res.json({ token, phone: user.phone, user: toPublicUser(user) });
+    } catch (e: any) {
+      res.status(500).json({ error: "Erreur serveur lors de la connexion." });
     }
   });
 
@@ -343,7 +352,7 @@ async function startServer() {
     try {
       const { data: user } = await supabase.from('users').select('*').eq('id', userId).single();
       if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-      res.json(camelizeKeys(user));
+      res.json(toPublicUser(user));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -613,7 +622,7 @@ async function startServer() {
 
   app.get("/api/admin/users", async (_req, res) => {
     const { data: users } = await supabase.from('users').select('*').order('first_name');
-    res.json(camelizeKeys(users || []));
+    res.json((users || []).map(toPublicUser));
   });
 
   app.get("/api/admin/tontines", async (_req, res) => {
@@ -817,7 +826,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/administrators/promote", async (req: any, res) => {
-    const { phone, firstName } = req.body;
+    const { phone, firstName, password } = req.body;
     const cleanPhone = normalizePhone(phone || '');
     if (!cleanPhone) return res.status(400).json({ error: "Numéro de téléphone requis" });
 
@@ -831,10 +840,17 @@ async function startServer() {
           timestamp: new Date().toISOString()
         });
       } else {
+        if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
+          return res.status(400).json({ error: `Un mot de passe d'au moins ${MIN_PASSWORD_LENGTH} caractères est requis pour créer un nouvel administrateur.` });
+        }
         const id = `admin_${genId()}`;
         const referralCode = `PRO-${genId().toUpperCase()}`;
         const name = firstName || "Admin Associé";
-        await supabase.from('users').insert({ id, first_name: name, phone: cleanPhone, referral_code: referralCode, role: 'admin' });
+        await supabase.from('users').insert({
+          id, first_name: name, phone: cleanPhone,
+          password_hash: bcrypt.hashSync(String(password), 10),
+          referral_code: referralCode, role: 'admin'
+        });
         await supabase.from('system_logs').insert({
           id: `log_${genId()}`, action: "Création Administrateur",
           details: `${req.adminUser.firstName} a créé l'administrateur ${name} (${cleanPhone})`,

@@ -23,7 +23,7 @@ export const Profile: React.FC = () => {
         </div>
         <div>
           <h2 className="text-2xl font-black text-gray-800">{user?.firstName} Kouassi</h2>
-          <p className="text-xs font-bold text-gray-400">Position 7 • Groupe Espoir • {user?.phone}</p>
+          <p className="text-xs font-bold text-gray-400">Position 7 • Groupe Espoir • {user?.phone || user?.email}</p>
         </div>
       </Card>
 

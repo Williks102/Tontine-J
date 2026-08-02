@@ -57,8 +57,8 @@ function InnerApp() {
     setRegStep, 
     regData, 
     setRegData, 
-    loginPhone, 
-    setLoginPhone,
+    loginIdentifier,
+    setLoginIdentifier,
     loginPasswordStr,
     setLoginPasswordStr,
     handleLogin: authLogin,
@@ -156,7 +156,7 @@ function InnerApp() {
   };
 
   const executeLogin = async () => {
-    if (!loginPhone.trim() || !loginPasswordStr.trim()) return;
+    if (!loginIdentifier.trim() || !loginPasswordStr.trim()) return;
     setIsLoggingInAction(true);
     const res = await authLogin();
     setIsLoggingInAction(false);
@@ -196,8 +196,8 @@ function InnerApp() {
       setSmsCode={setSmsCode}
       cameraError={cameraError}
       setCameraError={setCameraError}
-      loginPhone={loginPhone}
-      setLoginPhone={setLoginPhone}
+      loginIdentifier={loginIdentifier}
+      setLoginIdentifier={setLoginIdentifier}
       loginPasswordStr={loginPasswordStr}
       setLoginPasswordStr={setLoginPasswordStr}
       isLandingMenuOpen={isLandingMenuOpen}

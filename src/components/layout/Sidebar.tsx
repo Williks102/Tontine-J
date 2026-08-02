@@ -79,7 +79,7 @@ export const Sidebar: React.FC = () => {
              <img src={user?.selfieUrl || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop"} className="w-10 h-10 rounded-full border border-white/10" referrerPolicy="no-referrer" />
              <div className="flex-1 overflow-hidden">
                <p className="text-xs font-bold text-white truncate">{user?.firstName}</p>
-               <p className="text-[10px] text-purple-300 truncate">{user?.phone}</p>
+               <p className="text-[10px] text-purple-300 truncate">{user?.phone || user?.email}</p>
              </div>
            </div>
            <button 

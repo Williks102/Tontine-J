@@ -6,15 +6,16 @@
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   first_name TEXT NOT NULL,
-  phone TEXT NOT NULL UNIQUE,
-  password TEXT,
+  phone TEXT UNIQUE,
+  email TEXT UNIQUE,
   password_hash TEXT,
   selfie_url TEXT,
   balance REAL DEFAULT 0,
   referral_code TEXT NOT NULL UNIQUE,
   referred_by TEXT,
   role TEXT DEFAULT 'user',
-  is_banned BOOLEAN DEFAULT FALSE
+  is_banned BOOLEAN DEFAULT FALSE,
+  CONSTRAINT users_phone_or_email_required CHECK (phone IS NOT NULL OR email IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -98,6 +99,28 @@ CREATE TABLE IF NOT EXISTS system_logs (
   details TEXT,
   timestamp TEXT
 );
+
+-- ============================================================
+-- Migration : Authentification par e-mail + suppression du mot de
+-- passe en clair. Sûr à ré-exécuter (idempotent) sur une base déjà
+-- créée avec l'ancien schéma.
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password') THEN
+    ALTER TABLE users DROP COLUMN password;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users (email) WHERE email IS NOT NULL;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_or_email_required') THEN
+    ALTER TABLE users ADD CONSTRAINT users_phone_or_email_required CHECK (phone IS NOT NULL OR email IS NOT NULL);
+  END IF;
+END $$;
 
 -- ============================================================
 -- Row Level Security (le service_role la contourne automatiquement)

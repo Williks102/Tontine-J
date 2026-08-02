@@ -22,3 +22,16 @@ export const camelizeKeys = (obj: any): any => {
   }
   return obj
 }
+
+// Liste blanche de champs jamais exposés au client (jamais password_hash)
+const PUBLIC_USER_FIELDS = [
+  'id', 'first_name', 'phone', 'email', 'selfie_url', 'balance',
+  'referral_code', 'referred_by', 'role', 'is_banned'
+] as const
+
+export const toPublicUser = (user: any): any => {
+  if (!user) return user
+  const picked: Record<string, any> = {}
+  for (const field of PUBLIC_USER_FIELDS) picked[field] = user[field]
+  return camelizeKeys(picked)
+}

@@ -36,14 +36,14 @@ interface GuestViewProps {
   setIsLoggingIn: (val: boolean) => void;
   regStep: number;
   setRegStep: (val: number | ((prev: number) => number)) => void;
-  regData: { firstName: string; phone: string; password?: string; selfie: string; referredByCode?: string };
+  regData: { firstName: string; phone: string; email?: string; password?: string; selfie: string; referredByCode?: string };
   setRegData: (data: any) => void;
   smsCode: string;
   setSmsCode: (code: string) => void;
   cameraError: string | null;
   setCameraError: (err: string | null) => void;
-  loginPhone: string;
-  setLoginPhone: (phone: string) => void;
+  loginIdentifier: string;
+  setLoginIdentifier: (identifier: string) => void;
   loginPasswordStr: string;
   setLoginPasswordStr: (pwd: string) => void;
   isLandingMenuOpen: boolean;
@@ -86,8 +86,8 @@ export default function GuestView({
   setSmsCode,
   cameraError,
   setCameraError,
-  loginPhone,
-  setLoginPhone,
+  loginIdentifier,
+  setLoginIdentifier,
   loginPasswordStr,
   setLoginPasswordStr,
   isLandingMenuOpen,
@@ -881,32 +881,32 @@ export default function GuestView({
         <div className="space-y-10 max-w-md w-full bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-xl shadow-purple-950/5">
           <div className="text-center space-y-3">
             <h2 className="text-3xl font-black text-gray-900 leading-tight">Bon retour ! 👋</h2>
-            <p className="text-gray-500 text-xs px-4">Entrez votre numéro et mot de passe pour accéder à votre espace sécurisé.</p>
+            <p className="text-gray-500 text-xs px-4">Entrez votre e-mail ou votre numéro, et votre mot de passe, pour accéder à votre espace sécurisé.</p>
           </div>
-          
+
           <div className="space-y-6">
             <div className="relative group">
-              <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#3B0764] transition-all" size={24} />
-              <input 
-                type="tel" 
-                placeholder="+225 07 00 00 00 00" 
+              <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#3B0764] transition-all" size={24} />
+              <input
+                type="text"
+                placeholder="E-mail ou +225 07 00 00 00 00"
                 className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all text-lg font-bold"
-                value={loginPhone}
-                onChange={(e) => setLoginPhone(e.target.value)}
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
               />
             </div>
-            
+
             <div className="space-y-1">
-              <input 
-                type="password" 
-                placeholder="Votre mot de passe" 
+              <input
+                type="password"
+                placeholder="Votre mot de passe"
                 className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all text-base font-bold"
                 value={loginPasswordStr}
                 onChange={(e) => setLoginPasswordStr(e.target.value)}
               />
             </div>
 
-            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginPhone || !loginPasswordStr || isLoggingInAction} onClick={handleLogin}>
+            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginIdentifier || !loginPasswordStr || isLoggingInAction} onClick={handleLogin}>
               {isLoggingInAction ? "Vérification..." : "Se connecter"}
             </Button>
             <p className="text-center text-xs font-bold text-gray-500">
@@ -1038,21 +1038,30 @@ export default function GuestView({
             {regStep === 3 && (
               <motion.div key="st3" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="space-y-6">
                 <div className="space-y-2">
-                  <h2 className="text-2xl font-black text-gray-900 leading-tight">Votre Mobile 📱</h2>
-                  <p className="text-xs text-gray-500">Pour recevoir votre code et gérer votre argent.</p>
+                  <h2 className="text-2xl font-black text-gray-900 leading-tight">Vos coordonnées 📱</h2>
+                  <p className="text-xs text-gray-500">Renseignez au moins un numéro ou un e-mail pour vous connecter.</p>
                 </div>
                 <div className="relative">
                   <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" size={24} />
-                  <input 
-                    type="tel" autoFocus placeholder="+225 07..."
+                  <input
+                    type="tel" autoFocus placeholder="+225 07... (optionnel si e-mail renseigné)"
                     className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-lg font-bold"
                     value={regData.phone}
                     onChange={(e) => setRegData({ ...regData, phone: e.target.value })}
                   />
                 </div>
+                <div className="relative">
+                  <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" size={24} />
+                  <input
+                    type="email" placeholder="E-mail (optionnel si téléphone renseigné)"
+                    className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-lg font-bold"
+                    value={regData.email || ''}
+                    onChange={(e) => setRegData({ ...regData, email: e.target.value })}
+                  />
+                </div>
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-500 font-bold">Définissez votre mot de passe :</p>
-                  <input 
+                  <p className="text-xs text-gray-500 font-bold">Définissez votre mot de passe (min. 6 caractères) :</p>
+                  <input
                     type="password" placeholder="Mot de passe"
                     className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold"
                     value={regData.password || ''}
@@ -1061,14 +1070,20 @@ export default function GuestView({
                 </div>
                 <div className="space-y-2">
                   <p className="text-xs text-gray-500 font-bold">Code de parrainage (Optionnel) :</p>
-                  <input 
+                  <input
                     type="text" placeholder="Ex: PRO-KOFFI"
                     className="w-full bg-gray-50 p-4 px-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold uppercase"
                     value={regData.referredByCode || ''}
                     onChange={(e) => setRegData({ ...regData, referredByCode: e.target.value })}
                   />
                 </div>
-                <Button variant="primary" className="w-full py-5 text-lg" disabled={!regData.phone || !regData.password} onClick={() => setRegStep(4)}>M'envoyer le code</Button>
+                <Button
+                  variant="primary" className="w-full py-5 text-lg"
+                  disabled={(!regData.phone && !regData.email) || !regData.password || regData.password.length < 6}
+                  onClick={() => setRegStep(4)}
+                >
+                  M'envoyer le code
+                </Button>
               </motion.div>
             )}
 
