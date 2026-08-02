@@ -45,7 +45,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]+)/);
       const inviteCode = inviteMatch ? inviteMatch[1] : null;
       if (inviteCode) {
-        window.history.replaceState({}, '', '/');
+        // Préserve l'état de navigation déjà posé par NavigationProvider
+        // (son effet s'exécute avant celui-ci) au lieu de l'écraser.
+        window.history.replaceState(window.history.state, '', '/');
       }
 
       const savedUser = getSavedUser();
