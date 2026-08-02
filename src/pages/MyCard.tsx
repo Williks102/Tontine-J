@@ -177,11 +177,9 @@ export const MyCard: React.FC = () => {
         const updated = userCards.map(c => {
           if (c.id === cardId) {
             const currentPayments = c.payments || [];
-            const isLastDay = dayIndex === (c.totalDays - 1);
             return {
               ...c,
-              status: isLastDay ? 'completed' : c.status,
-              payments: [...currentPayments, { cardId, dayIndex, amount: c.dailyAmount, isCommission: isLastDay ? 1 : 0 }]
+              payments: [...currentPayments, { cardId, dayIndex, amount: c.dailyAmount, isCommission: 0 }]
             };
           }
           return c;
@@ -197,6 +195,37 @@ export const MyCard: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const [withdrawingCardId, setWithdrawingCardId] = useState<string | null>(null);
+
+  const handleWithdrawCard = async (card: any) => {
+    if (!user) return;
+    if (!confirm(
+      `Retirer vos cotisations de "${card.title}" ? ` +
+      `Une mise (${card.dailyAmount} F) sera retenue comme commission de service, le reste sera crédité sur votre solde.`
+    )) return;
+
+    setWithdrawingCardId(card.id);
+    try {
+      const res = await authFetch(`/api/my-cards/${card.id}/withdraw`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.newBalance !== undefined) setBalance(data.newBalance);
+        const localCacheKey = `tontine_pro_cards_${user.id}`;
+        const updated = userCards.map(c => c.id === card.id ? { ...c, status: 'completed' } : c);
+        setUserCards(updated);
+        localStorage.setItem(localCacheKey, JSON.stringify(updated));
+        fetchUserCards();
+        alert(`Retrait effectué : ${data.payout.toLocaleString()} F crédités sur votre solde (commission : ${data.commission.toLocaleString()} F).`);
+      } else {
+        alert(data.error || "Erreur lors du retrait");
+      }
+    } catch (e: any) {
+      alert("Erreur de connexion : " + (e.message || "Impossible de contacter le serveur"));
+    } finally {
+      setWithdrawingCardId(null);
     }
   };
 
@@ -675,29 +704,27 @@ export const MyCard: React.FC = () => {
                       <div className="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-12 lg:grid-cols-15 gap-1.5">
                         {Array.from({ length: totalDays }).map((_, i) => {
                           const payment = card.payments ? card.payments.find((p: any) => p.dayIndex === i) : null;
-                          const isLastDay = i === totalDays - 1;
 
                           return (
-                            <div 
+                            <div
                               key={i}
                               className={`aspect-square rounded-lg flex items-center justify-center transition-all border text-[9px] font-black select-none ${
-                                payment 
-                                  ? (payment.isCommission ? 'bg-amber-500 border-amber-500 text-white shadow-sm shadow-amber-500/10' : 'bg-[#3B0764] border-[#3B0764] text-white') 
+                                payment
+                                  ? 'bg-[#3B0764] border-[#3B0764] text-white'
                                   : 'bg-white border-gray-200 text-gray-300'
                               }`}
                               title={payment ? `Journée ${i+1} payée • ${card.dailyAmount} F` : `Journée ${i+1} en attente`}
                             >
-                              {payment ? (
-                                <Check size={11} strokeWidth={3} />
-                              ) : (
-                                <span className={isLastDay ? 'text-amber-500 font-extrabold' : ''}>
-                                  {isLastDay ? 'C' : i + 1}
-                                </span>
-                              )}
+                              {payment ? <Check size={11} strokeWidth={3} /> : i + 1}
                             </div>
                           );
                         })}
                       </div>
+                      {card.status === 'completed' && (
+                        <p className="text-[10px] font-bold text-emerald-600 mt-2 flex items-center gap-1">
+                          <Check size={12} /> Carte clôturée — retrait effectué par le membre
+                        </p>
+                      )}
                     </div>
 
                     {/* Financial details: daily stake & commissions tracking info */}
@@ -709,9 +736,9 @@ export const MyCard: React.FC = () => {
                       <div className={`p-2.5 rounded-xl flex items-center gap-2 ${commissionRecorded ? 'bg-amber-100/65 text-amber-800' : 'bg-gray-50 text-gray-500'}`}>
                         <Trophy size={14} className={commissionRecorded ? 'text-amber-600' : 'text-gray-450'} />
                         <span className="font-extrabold text-[10px] uppercase tracking-wide">
-                          {commissionRecorded 
-                            ? `Commission Récoltée: +${card.dailyAmount} F (Frais d'administration acquis)` 
-                            : `Frais administratifs prévus (Dernier Jour): ${card.dailyAmount} F`}
+                          {commissionRecorded
+                            ? `Commission Récoltée: +${card.dailyAmount} F (Frais d'administration acquis)`
+                            : `Commission prévue au retrait : ${card.dailyAmount} F`}
                         </span>
                       </div>
                     </div>
@@ -835,11 +862,15 @@ export const MyCard: React.FC = () => {
         )}
 
         {userCards.map(card => {
-          const paidCount = card.payments ? card.payments.length : 0;
+          const regularPayments = card.payments ? card.payments.filter((p: any) => p.dayIndex >= 0) : [];
+          const commissionPayment = card.payments ? card.payments.find((p: any) => p.dayIndex === -1) : null;
+          const paidCount = regularPayments.length;
           const totalDays = card.totalDays && card.totalDays > 0 ? card.totalDays : 1;
           const progress = isNaN((paidCount / totalDays) * 100) ? 0 : (paidCount / totalDays) * 100;
-          const totalAmount = paidCount * (card.dailyAmount || 0);
-          
+          const totalAmount = regularPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+          const isClosed = card.status === 'completed';
+          const isWithdrawing = withdrawingCardId === card.id;
+
           return (
             <Card key={card.id} className="overflow-hidden border-none shadow-sm">
               <div className="bg-[#3B0764]/5 p-4 flex items-center justify-between">
@@ -852,7 +883,7 @@ export const MyCard: React.FC = () => {
                     <p className="text-sm font-black text-gray-800">{totalAmount.toLocaleString()} F</p>
                     <p className="text-[10px] font-bold text-gray-400">Total épargné</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleDeleteCard(card.id)}
                     className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
                     title="Supprimer la carte"
@@ -863,67 +894,94 @@ export const MyCard: React.FC = () => {
               </div>
 
               <div className="p-4 space-y-4 font-sans">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-[#3B0764]"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                    />
+                {isClosed ? (
+                  <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
+                    <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                      <Check size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-emerald-800">Carte clôturée</p>
+                      <p className="text-[10px] font-bold text-emerald-700">
+                        {(totalAmount - (commissionPayment?.amount || 0)).toLocaleString()} F retirés sur votre solde
+                        {commissionPayment ? ` • ${commissionPayment.amount.toLocaleString()} F de commission` : ''}
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-black text-gray-500">{Math.round(progress)}%</span>
-                </div>
-
-                <div className="grid grid-cols-7 gap-2">
-                  {Array.from({ length: totalDays }).map((_, i) => {
-                    const payment = card.payments ? card.payments.find((p: any) => p.dayIndex === i) : null;
-                    const isLastDay = i === totalDays - 1;
-                    
-                    return (
-                      <div 
-                        key={i}
-                        onClick={() => !payment && handleCardPayment(card.id, i)}
-                        className={`aspect-square rounded-lg flex items-center justify-center cursor-pointer transition-all border ${
-                          payment 
-                            ? (payment.isCommission ? 'bg-orange-500 border-orange-500 text-white shadow-sm' : 'bg-[#3B0764] border-[#3B0764] text-white') 
-                            : 'bg-white border-gray-200 hover:border-[#3B0764]/55'
-                        }`}
-                      >
-                        {payment ? (
-                          <Check size={14} />
-                        ) : (
-                          <span className={`text-[9px] font-black ${isLastDay ? 'text-orange-500' : 'text-gray-300'}`}>
-                            {isLastDay ? 'C' : i + 1}
-                          </span>
-                        )}
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <motion.div
+                          className="h-full bg-[#3B0764]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress}%` }}
+                        />
                       </div>
-                    );
-                  })}
-                </div>
+                      <span className="text-[10px] font-black text-gray-500">{Math.round(progress)}%</span>
+                    </div>
 
-                {insufficientCardId === card.id && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-100 p-3 rounded-xl">
-                    <AlertCircle size={16} className="text-red-500 shrink-0" />
-                    <p className="text-[10px] font-bold text-red-600 leading-tight flex-1">
-                      Solde insuffisant pour cette mise ({card.dailyAmount} F).
-                    </p>
-                    <button
-                      onClick={() => setShowRechargeModal(true)}
-                      className="text-[10px] font-black text-[#3B0764] underline cursor-pointer"
+                    <div className="grid grid-cols-7 gap-2">
+                      {Array.from({ length: totalDays }).map((_, i) => {
+                        const payment = regularPayments.find((p: any) => p.dayIndex === i);
+                        const isNext = i === paidCount;
+
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => !payment && isNext && handleCardPayment(card.id, i)}
+                            title={!payment && !isNext ? 'Cotisez les cases précédentes d\'abord' : undefined}
+                            className={`aspect-square rounded-lg flex items-center justify-center transition-all border ${
+                              payment
+                                ? 'bg-[#3B0764] border-[#3B0764] text-white cursor-default'
+                                : isNext
+                                  ? 'bg-white border-gray-200 hover:border-[#3B0764]/55 cursor-pointer'
+                                  : 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50'
+                            }`}
+                          >
+                            {payment ? (
+                              <Check size={14} />
+                            ) : (
+                              <span className="text-[9px] font-black text-gray-300">{i + 1}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {insufficientCardId === card.id && (
+                      <div className="flex items-center gap-2 bg-red-50 border border-red-100 p-3 rounded-xl">
+                        <AlertCircle size={16} className="text-red-500 shrink-0" />
+                        <p className="text-[10px] font-bold text-red-600 leading-tight flex-1">
+                          Solde insuffisant pour cette mise ({card.dailyAmount} F).
+                        </p>
+                        <button
+                          onClick={() => setShowRechargeModal(true)}
+                          className="text-[10px] font-black text-[#3B0764] underline cursor-pointer"
+                        >
+                          Recharger
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 bg-orange-50 p-3 rounded-xl">
+                      <div className="w-8 h-8 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center shrink-0">
+                        <Trophy size={16} />
+                      </div>
+                      <p className="text-[10px] font-bold text-orange-700 leading-tight">
+                        Vous pouvez retirer vos cotisations à tout moment. Au retrait, une mise ({card.dailyAmount} F) sera retenue comme commission de service.
+                      </p>
+                    </div>
+
+                    <Button
+                      className="w-full"
+                      disabled={paidCount === 0 || isWithdrawing}
+                      onClick={() => handleWithdrawCard(card)}
                     >
-                      Recharger
-                    </button>
-                  </div>
+                      <Wallet size={16} className="mr-2" />
+                      {isWithdrawing ? 'Retrait en cours...' : `Retirer mes cotisations (${totalAmount.toLocaleString()} F)`}
+                    </Button>
+                  </>
                 )}
-
-                <div className="flex items-center gap-2 bg-orange-50 p-3 rounded-xl">
-                  <div className="w-8 h-8 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center">
-                    <Trophy size={16} />
-                  </div>
-                  <p className="text-[10px] font-bold text-orange-700 leading-tight">
-                    Frais de gestion: Le dernier versement de votre carte ({card.dailyAmount} F) sera prélevé et reversé à l'administrateur comme commission de service.
-                  </p>
-                </div>
               </div>
             </Card>
           );
