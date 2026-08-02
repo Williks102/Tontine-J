@@ -36,14 +36,12 @@ interface GuestViewProps {
   setIsLoggingIn: (val: boolean) => void;
   regStep: number;
   setRegStep: (val: number | ((prev: number) => number)) => void;
-  regData: { firstName: string; phone: string; password?: string; selfie: string; referredByCode?: string };
+  regData: { firstName: string; phone: string; email?: string; password?: string; selfie: string; referredByCode?: string };
   setRegData: (data: any) => void;
-  smsCode: string;
-  setSmsCode: (code: string) => void;
   cameraError: string | null;
   setCameraError: (err: string | null) => void;
-  loginPhone: string;
-  setLoginPhone: (phone: string) => void;
+  loginIdentifier: string;
+  setLoginIdentifier: (identifier: string) => void;
   loginPasswordStr: string;
   setLoginPasswordStr: (pwd: string) => void;
   isLandingMenuOpen: boolean;
@@ -82,12 +80,10 @@ export default function GuestView({
   setRegStep,
   regData,
   setRegData,
-  smsCode,
-  setSmsCode,
   cameraError,
   setCameraError,
-  loginPhone,
-  setLoginPhone,
+  loginIdentifier,
+  setLoginIdentifier,
   loginPasswordStr,
   setLoginPasswordStr,
   isLandingMenuOpen,
@@ -881,32 +877,32 @@ export default function GuestView({
         <div className="space-y-10 max-w-md w-full bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-xl shadow-purple-950/5">
           <div className="text-center space-y-3">
             <h2 className="text-3xl font-black text-gray-900 leading-tight">Bon retour ! 👋</h2>
-            <p className="text-gray-500 text-xs px-4">Entrez votre numéro et mot de passe pour accéder à votre espace sécurisé.</p>
+            <p className="text-gray-500 text-xs px-4">Entrez votre e-mail ou votre numéro, et votre mot de passe, pour accéder à votre espace sécurisé.</p>
           </div>
-          
+
           <div className="space-y-6">
             <div className="relative group">
-              <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#3B0764] transition-all" size={24} />
-              <input 
-                type="tel" 
-                placeholder="+225 07 00 00 00 00" 
+              <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#3B0764] transition-all" size={24} />
+              <input
+                type="text"
+                placeholder="E-mail ou +225 07 00 00 00 00"
                 className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all text-lg font-bold"
-                value={loginPhone}
-                onChange={(e) => setLoginPhone(e.target.value)}
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
               />
             </div>
-            
+
             <div className="space-y-1">
-              <input 
-                type="password" 
-                placeholder="Votre mot de passe" 
+              <input
+                type="password"
+                placeholder="Votre mot de passe"
                 className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all text-base font-bold"
                 value={loginPasswordStr}
                 onChange={(e) => setLoginPasswordStr(e.target.value)}
               />
             </div>
 
-            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginPhone || !loginPasswordStr || isLoggingInAction} onClick={handleLogin}>
+            <Button variant="primary" className="w-full py-5 text-lg" disabled={!loginIdentifier || !loginPasswordStr || isLoggingInAction} onClick={handleLogin}>
               {isLoggingInAction ? "Vérification..." : "Se connecter"}
             </Button>
             <p className="text-center text-xs font-bold text-gray-500">
@@ -950,9 +946,9 @@ export default function GuestView({
               <ArrowLeft size={18} />
             </button>
             <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-[#3B0764] transition-all duration-700 ease-out" style={{ width: `${(regStep / 4) * 100}%` }} />
+              <div className="h-full bg-[#3B0764] transition-all duration-700 ease-out" style={{ width: `${(regStep / 3) * 100}%` }} />
             </div>
-            <span className="text-xs font-black text-[#3B0764]">{regStep}/4</span>
+            <span className="text-xs font-black text-[#3B0764]">{regStep}/3</span>
           </div>
 
           <AnimatePresence mode="wait">
@@ -1038,21 +1034,30 @@ export default function GuestView({
             {regStep === 3 && (
               <motion.div key="st3" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="space-y-6">
                 <div className="space-y-2">
-                  <h2 className="text-2xl font-black text-gray-900 leading-tight">Votre Mobile 📱</h2>
-                  <p className="text-xs text-gray-500">Pour recevoir votre code et gérer votre argent.</p>
+                  <h2 className="text-2xl font-black text-gray-900 leading-tight">Vos coordonnées 📱</h2>
+                  <p className="text-xs text-gray-500">Renseignez au moins un numéro ou un e-mail pour vous connecter.</p>
                 </div>
                 <div className="relative">
                   <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" size={24} />
-                  <input 
-                    type="tel" autoFocus placeholder="+225 07..."
+                  <input
+                    type="tel" autoFocus placeholder="+225 07... (optionnel si e-mail renseigné)"
                     className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-lg font-bold"
                     value={regData.phone}
                     onChange={(e) => setRegData({ ...regData, phone: e.target.value })}
                   />
                 </div>
+                <div className="relative">
+                  <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" size={24} />
+                  <input
+                    type="email" placeholder="E-mail (optionnel si téléphone renseigné)"
+                    className="w-full bg-gray-50 p-5 pl-14 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-lg font-bold"
+                    value={regData.email || ''}
+                    onChange={(e) => setRegData({ ...regData, email: e.target.value })}
+                  />
+                </div>
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-500 font-bold">Définissez votre mot de passe :</p>
-                  <input 
+                  <p className="text-xs text-gray-500 font-bold">Définissez votre mot de passe (min. 6 caractères) :</p>
+                  <input
                     type="password" placeholder="Mot de passe"
                     className="w-full bg-gray-50 p-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold"
                     value={regData.password || ''}
@@ -1061,49 +1066,18 @@ export default function GuestView({
                 </div>
                 <div className="space-y-2">
                   <p className="text-xs text-gray-500 font-bold">Code de parrainage (Optionnel) :</p>
-                  <input 
+                  <input
                     type="text" placeholder="Ex: PRO-KOFFI"
                     className="w-full bg-gray-50 p-4 px-5 rounded-3xl border border-gray-100 outline-none focus:ring-4 focus:ring-[#3B0764]/10 text-base font-bold uppercase"
                     value={regData.referredByCode || ''}
                     onChange={(e) => setRegData({ ...regData, referredByCode: e.target.value })}
                   />
                 </div>
-                <Button variant="primary" className="w-full py-5 text-lg" disabled={!regData.phone || !regData.password} onClick={() => setRegStep(4)}>M'envoyer le code</Button>
-              </motion.div>
-            )}
-
-            {regStep === 4 && (
-              <motion.div key="st4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="space-y-6">
-                <div className="space-y-2">
-                  <h2 className="text-2xl font-black text-gray-900 leading-tight">Checkez vos SMS</h2>
-                  <p className="text-xs text-gray-500">Tapez les 4 chiffres reçus (Astuce: 1234).</p>
-                </div>
-                <div className="flex justify-between gap-2.5 font-sans">
-                  {[...Array(4)].map((_, i) => (
-                    <input 
-                      key={i} id={`sms-input-${i}`} type="text" inputMode="numeric" maxLength={1} value={smsCode[i] || ''}
-                      className="w-full aspect-square bg-gray-50 text-center text-2xl font-black rounded-2xl border border-gray-200 outline-none focus:ring-4 focus:ring-[#3B0764]/10 focus:border-[#3B0764] transition-all"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Backspace' && !smsCode[i] && i > 0) {
-                          const prev = document.getElementById(`sms-input-${i - 1}`) as HTMLInputElement;
-                          if (prev) prev.focus();
-                        }
-                      }}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        if (!val) {
-                          const nc = smsCode.split(''); nc[i] = ''; setSmsCode(nc.join('')); return;
-                        }
-                        const nc = smsCode.split(''); nc[i] = val[val.length - 1]; setSmsCode(nc.join('').slice(0, 4));
-                        if (i < 3) {
-                          const next = document.getElementById(`sms-input-${i + 1}`) as HTMLInputElement;
-                          if (next) next.focus();
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-                <Button variant="primary" className="w-full py-5 text-lg" disabled={smsCode.length < 4 || isSubmitting} onClick={handleRegister}>
+                <Button
+                  variant="primary" className="w-full py-5 text-lg"
+                  disabled={(!regData.phone && !regData.email) || !regData.password || regData.password.length < 6 || isSubmitting}
+                  onClick={handleRegister}
+                >
                   {isSubmitting ? "Finalisation..." : "Valider l'inscription"}
                 </Button>
               </motion.div>

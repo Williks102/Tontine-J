@@ -57,8 +57,8 @@ function InnerApp() {
     setRegStep, 
     regData, 
     setRegData, 
-    loginPhone, 
-    setLoginPhone,
+    loginIdentifier,
+    setLoginIdentifier,
     loginPasswordStr,
     setLoginPasswordStr,
     handleLogin: authLogin,
@@ -85,7 +85,6 @@ function InnerApp() {
   }, [user, activeTab, setActiveTab]);
 
   // --- Landing & Auth specific local UI states ---
-  const [smsCode, setSmsCode] = useState('');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isLandingMenuOpen, setIsLandingMenuOpen] = useState(false);
   const [selectedLandingCategory, setSelectedLandingCategory] = useState<any>(null);
@@ -156,7 +155,7 @@ function InnerApp() {
   };
 
   const executeLogin = async () => {
-    if (!loginPhone.trim() || !loginPasswordStr.trim()) return;
+    if (!loginIdentifier.trim() || !loginPasswordStr.trim()) return;
     setIsLoggingInAction(true);
     const res = await authLogin();
     setIsLoggingInAction(false);
@@ -176,8 +175,6 @@ function InnerApp() {
     setIsSubmitting(false);
     if (!res.success) {
       alert(res.error || "Erreur d'inscription.");
-    } else {
-      setSmsCode('');
     }
   };
 
@@ -192,12 +189,10 @@ function InnerApp() {
       setRegStep={setRegStep}
       regData={regData}
       setRegData={setRegData}
-      smsCode={smsCode}
-      setSmsCode={setSmsCode}
       cameraError={cameraError}
       setCameraError={setCameraError}
-      loginPhone={loginPhone}
-      setLoginPhone={setLoginPhone}
+      loginIdentifier={loginIdentifier}
+      setLoginIdentifier={setLoginIdentifier}
       loginPasswordStr={loginPasswordStr}
       setLoginPasswordStr={setLoginPasswordStr}
       isLandingMenuOpen={isLandingMenuOpen}

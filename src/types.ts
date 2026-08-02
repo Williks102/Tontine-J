@@ -3,7 +3,8 @@ export type Category = 'Alimentaire' | 'Cash' | 'Baby Mama' | 'Immobilier' | 'Te
 export interface User {
   id: string;
   firstName: string;
-  phone: string;
+  phone?: string;
+  email?: string;
   selfieUrl: string;
   balance: number;
   referralCode: string;

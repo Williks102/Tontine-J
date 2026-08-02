@@ -54,6 +54,7 @@ export const AdminSettings: React.FC = () => {
   // New admin state
   const [newAdminPhone, setNewAdminPhone] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
 
   // Logs search state
   const [logSearch, setLogSearch] = useState('');
@@ -223,13 +224,15 @@ export const AdminSettings: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           phone: newAdminPhone,
-          firstName: newAdminName || "Admin Associé"
+          firstName: newAdminName || "Admin Associé",
+          password: newAdminPassword
         })
       });
       if (res.ok) {
         triggerFeedback(true, "Nouvel administrateur ajouté avec succès !");
         setNewAdminPhone('');
         setNewAdminName('');
+        setNewAdminPassword('');
         loadAdmins();
       } else {
         const err = await res.json();
@@ -612,12 +615,13 @@ export const AdminSettings: React.FC = () => {
                   <h4 className="text-[10px] font-black uppercase text-gray-700 tracking-wider">Promouvoir un Associé Admin</h4>
                   <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
                     Entrez le numéro d'un utilisateur existant ou d'un nouvel associé pour lui accorder les accès complets à la plateforme d'administration.
+                    Pour un nouvel associé, un mot de passe est requis.
                   </p>
 
                   <div className="space-y-3.5">
                     <div>
                       <label className="text-[9px] font-black uppercase text-gray-400 block mb-1">Téléphone de l'associé</label>
-                      <input 
+                      <input
                         type="text"
                         placeholder="Ex: 0702490277"
                         value={newAdminPhone}
@@ -629,11 +633,22 @@ export const AdminSettings: React.FC = () => {
 
                     <div>
                       <label className="text-[9px] font-black uppercase text-gray-400 block mb-1">Prénom / Surnom</label>
-                      <input 
+                      <input
                         type="text"
                         placeholder="Ex: Koffi"
                         value={newAdminName}
                         onChange={(e) => setNewAdminName(e.target.value)}
+                        className="w-full text-xs p-3.5 border border-gray-100 rounded-2xl outline-none focus:border-[#3B0764]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-gray-400 block mb-1">Mot de passe (nouvel associé uniquement)</label>
+                      <input
+                        type="password"
+                        placeholder="Min. 6 caractères"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
                         className="w-full text-xs p-3.5 border border-gray-100 rounded-2xl outline-none focus:border-[#3B0764]"
                       />
                     </div>
