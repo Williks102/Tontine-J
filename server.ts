@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import crypto from "crypto";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -9,12 +10,14 @@ import { query, camelizeKeys, toPublicUser } from "./lib/db";
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || "tontine-pro-secret-key-123456";
-if (JWT_SECRET === "tontine-pro-secret-key-123456") {
-  console.warn("⚠️  Avertissement de Sécurité: Configurez JWT_SECRET dans votre .env");
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 16) {
+  throw new Error(
+    "JWT_SECRET manquant ou trop court. Configurez une valeur d'au moins 16 caractères dans votre .env."
+  );
 }
 
-const genId = () => Math.random().toString(36).substr(2, 9);
+const genId = () => crypto.randomBytes(6).toString('hex');
 const normalizePhone = (phone: string) => phone.replace(/[\s\(\)\-\.]/g, '');
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
