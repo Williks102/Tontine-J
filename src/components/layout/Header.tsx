@@ -8,6 +8,7 @@ export const Header: React.FC<{ viewingMember?: any; setViewingMember?: (val: an
   const { activeTab, setActiveTab, currentPage, setCurrentPage, goBack, isMenuOpen, setIsMenuOpen } = useNavigation();
 
   const isMainTab = activeTab === (user?.role === 'admin' ? 'admin_activite' : 'tableaudebord');
+  const isAccueilTab = activeTab === 'accueil';
   const showBack = !isMainTab || viewingMember || currentPage !== 'main';
 
   const handleGoBack = () => {
@@ -49,19 +50,19 @@ export const Header: React.FC<{ viewingMember?: any; setViewingMember?: (val: an
             <Home size={22} />
           </button>
         )}
-        <span 
-          className="font-black text-white hover:text-amber-300 cursor-pointer transition-colors text-base uppercase tracking-wider"
-          onClick={navigateHome}
+        <span
+          className={`font-black text-white text-base uppercase tracking-wider ${isAccueilTab ? '' : 'hover:text-amber-300 cursor-pointer transition-colors'}`}
+          onClick={isAccueilTab ? undefined : navigateHome}
         >
           {getTitle()}
         </span>
       </div>
       <div className="flex items-center gap-2">
-        {!isMainTab && (
+        {!isMainTab && !isAccueilTab && (
           <button
             onClick={navigateHome}
             className="p-2 text-purple-200 hover:text-amber-400 transition-colors cursor-pointer"
-            title="Page d'accueil"
+            title="Tableau de bord"
           >
             <Home size={20} />
           </button>
