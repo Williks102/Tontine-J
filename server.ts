@@ -196,6 +196,23 @@ async function startServer() {
     next();
   });
 
+  // Un compte banni garde un JWT valide jusqu'à son expiration (7 jours) —
+  // /api/login vérifie is_banned à la connexion, mais rien ne le
+  // revérifiait sur les requêtes suivantes avec un token déjà émis.
+  app.use(async (req, res, next) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return next();
+    try {
+      const [u] = await query(`SELECT is_banned FROM users WHERE id = $1`, [userId]);
+      if (u?.is_banned) {
+        return res.status(403).json({ error: "Votre compte a été banni. Veuillez contacter l'administration." });
+      }
+      next();
+    } catch {
+      next();
+    }
+  });
+
   // --- Ma Carte ---
 
   app.get("/api/my-cards", async (req, res) => {
