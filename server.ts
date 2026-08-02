@@ -554,9 +554,16 @@ async function startServer() {
   });
 
   app.post("/api/groups/join", async (req, res) => {
-    const { groupId, positions } = req.body;
+    const { groupId } = req.body;
+    const positions = parseInt(String(req.body.positions));
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: "Non autorisé. Jeton requis." });
+    if (!groupId || typeof groupId !== 'string') {
+      return res.status(400).json({ error: "Groupe invalide." });
+    }
+    if (!Number.isInteger(positions) || positions < 1 || positions > 10) {
+      return res.status(400).json({ error: "Nombre de positions invalide (1 à 10)." });
+    }
 
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [groupId]);
     if (!group || group.status !== 'open') {
@@ -911,9 +918,12 @@ async function startServer() {
 
   app.post("/api/admin/groups/:id/members", async (req, res) => {
     const groupId = req.params.id;
-    const { userId, positions } = req.body;
+    const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "L'identifiant du membre (userId) est requis." });
-    const numPositions = parseInt(String(positions)) || 1;
+    const numPositions = req.body.positions === undefined ? 1 : parseInt(String(req.body.positions));
+    if (!Number.isInteger(numPositions) || numPositions < 1 || numPositions > 10) {
+      return res.status(400).json({ error: "Nombre de positions invalide (1 à 10)." });
+    }
 
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [groupId]);
     if (!group || group.status === 'deleted') return res.status(404).json({ error: "Groupe introuvable." });
