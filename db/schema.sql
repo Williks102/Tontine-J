@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS group_members (
   user_id TEXT NOT NULL REFERENCES users(id),
   positions INTEGER DEFAULT 1,
   payout_order INTEGER,
-  joined_at TEXT NOT NULL
+  joined_at TEXT NOT NULL,
+  UNIQUE(group_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -101,6 +102,19 @@ CREATE TABLE IF NOT EXISTS system_logs (
   timestamp TEXT
 );
 
+-- ============================================================
+-- Migration : empêche un utilisateur de rejoindre deux fois le même
+-- groupe (plusieurs lignes group_members pour la même paire). Sûr à
+-- ré-exécuter sur une base déjà créée sans cette contrainte.
+-- ============================================================
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'group_members_group_id_user_id_key'
+  ) THEN
+    ALTER TABLE group_members ADD CONSTRAINT group_members_group_id_user_id_key UNIQUE (group_id, user_id);
+  END IF;
+END $$;
+
 -- Note sur les droits d'accès : contrairement à Supabase (rôles
 -- anon/authenticated/service_role + RLS), le serveur Express se connecte
 -- ici avec un unique rôle propriétaire des tables. Le contrôle d'accès est
@@ -131,6 +145,10 @@ BEGIN
   SELECT stake, max_members, current_members_count
   INTO v_stake, v_max, v_count
   FROM groups WHERE id = p_group_id FOR UPDATE;
+
+  IF EXISTS (SELECT 1 FROM group_members WHERE group_id = p_group_id AND user_id = p_user_id) THEN
+    RAISE EXCEPTION 'Vous êtes déjà membre de ce groupe.';
+  END IF;
 
   -- Ordre de prise = ordre d'adhésion (1er inscrit = ordre 1, etc.)
   SELECT COUNT(*) INTO v_existing_members FROM group_members WHERE group_id = p_group_id;
