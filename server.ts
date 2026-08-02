@@ -24,6 +24,8 @@ const normalizePhone = (phone: string) => phone.replace(/[\s\(\)\-\.]/g, '');
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
+const SELFIE_DATA_URL_REGEX = /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/]+=*$/;
+const MAX_SELFIE_LENGTH = 3_000_000; // ~2.2 Mo binaire une fois décodé
 
 // Détecte si un identifiant de connexion est un e-mail ou un numéro de téléphone
 const isEmailLike = (identifier: string) => identifier.includes('@');
@@ -169,7 +171,9 @@ async function startServer() {
     .split(',').map(o => o.trim()).filter(Boolean);
   app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins } : { origin: false }));
 
-  app.use(express.json({ limit: '10mb' }));
+  // 5mb couvre largement un selfie compressé côté client (~800px, JPEG
+  // 70%, généralement < 500 Ko en base64) tout en bornant l'abus.
+  app.use(express.json({ limit: '5mb' }));
 
   // Anti brute-force sur les routes d'authentification.
   const authLimiter = rateLimit({
@@ -403,6 +407,14 @@ async function startServer() {
     }
     if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
       return res.status(400).json({ error: `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.` });
+    }
+    if (selfieUrl) {
+      if (typeof selfieUrl !== 'string' || selfieUrl.length > MAX_SELFIE_LENGTH) {
+        return res.status(400).json({ error: "Photo de profil trop volumineuse." });
+      }
+      if (!SELFIE_DATA_URL_REGEX.test(selfieUrl)) {
+        return res.status(400).json({ error: "Format de photo de profil invalide." });
+      }
     }
 
     const id = genId();
