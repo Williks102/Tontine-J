@@ -604,7 +604,12 @@ async function startServer() {
     try {
       const [statsRow] = await query(`SELECT rpc_platform_stats() AS stats`);
       const [historyRow] = await query(`SELECT rpc_commissions_history() AS history`);
-      res.json({ ...statsRow.stats, commissionsHistory: historyRow.history || [] });
+      const [activityRow] = await query(`SELECT rpc_recent_activity(15) AS activity`);
+      res.json({
+        ...statsRow.stats,
+        commissionsHistory: historyRow.history || [],
+        recentActivity: activityRow.activity || []
+      });
     } catch (error: any) {
       res.status(500).json({ error: "Erreur serveur statistiques: " + error.message });
     }
@@ -624,6 +629,33 @@ async function startServer() {
     }
   });
 
+  app.patch("/api/admin/groups/:id", async (req, res) => {
+    const { name, stake, maxMembers, durationDays } = req.body;
+    try {
+      const [group] = await query(`SELECT * FROM groups WHERE id = $1 AND status != 'deleted'`, [req.params.id]);
+      if (!group) return res.status(404).json({ error: "Groupe introuvable." });
+
+      const nextMaxMembers = maxMembers !== undefined ? parseInt(String(maxMembers)) : group.max_members;
+      if (nextMaxMembers < group.current_members_count) {
+        return res.status(400).json({ error: `Impossible : ${group.current_members_count} bras déjà occupés, supérieur au nouveau maximum.` });
+      }
+
+      await query(
+        `UPDATE groups SET name = $1, stake = $2, max_members = $3, duration_days = $4 WHERE id = $5`,
+        [
+          name?.trim() || group.name,
+          stake !== undefined ? parseInt(String(stake)) : group.stake,
+          nextMaxMembers,
+          durationDays !== undefined ? parseInt(String(durationDays)) : group.duration_days,
+          req.params.id
+        ]
+      );
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/admin/groups/:id", async (req, res) => {
     try {
       await query(`UPDATE groups SET status = 'deleted' WHERE id = $1`, [req.params.id]);
@@ -640,6 +672,70 @@ async function startServer() {
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/users/:userId", async (req, res) => {
+    let { firstName, phone, email, balance } = req.body;
+    try {
+      const [existing] = await query(`SELECT * FROM users WHERE id = $1`, [req.params.userId]);
+      if (!existing) return res.status(404).json({ error: "Membre introuvable." });
+
+      const cleanPhone = phone !== undefined ? (phone ? normalizePhone(phone) : null) : existing.phone;
+      const cleanEmail = email !== undefined ? (email ? normalizeEmail(email) : null) : existing.email;
+      if (!cleanPhone && !cleanEmail) {
+        return res.status(400).json({ error: "Un membre doit garder au moins un téléphone ou un e-mail." });
+      }
+      if (cleanEmail && !EMAIL_REGEX.test(cleanEmail)) {
+        return res.status(400).json({ error: "Adresse e-mail invalide." });
+      }
+      if (cleanPhone && cleanPhone !== existing.phone) {
+        const [dupPhone] = await query(`SELECT id FROM users WHERE phone = $1 AND id != $2`, [cleanPhone, req.params.userId]);
+        if (dupPhone) return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé par un autre membre." });
+      }
+      if (cleanEmail && cleanEmail !== existing.email) {
+        const [dupEmail] = await query(`SELECT id FROM users WHERE email = $1 AND id != $2`, [cleanEmail, req.params.userId]);
+        if (dupEmail) return res.status(400).json({ error: "Cette adresse e-mail est déjà utilisée par un autre membre." });
+      }
+
+      await query(
+        `UPDATE users SET first_name = $1, phone = $2, email = $3, balance = $4 WHERE id = $5`,
+        [
+          firstName?.trim() || existing.first_name,
+          cleanPhone, cleanEmail,
+          balance !== undefined ? parseFloat(String(balance)) : existing.balance,
+          req.params.userId
+        ]
+      );
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const [existing] = await query(`SELECT id, role FROM users WHERE id = $1`, [req.params.userId]);
+      if (!existing) return res.status(404).json({ error: "Membre introuvable." });
+      if (existing.role === 'admin') {
+        return res.status(400).json({ error: "Impossible de supprimer un compte administrateur ici." });
+      }
+
+      const [{ count: groupCount }] = await query(`SELECT COUNT(*)::int AS count FROM group_members WHERE user_id = $1`, [req.params.userId]);
+      const [{ count: paymentCount }] = await query(`SELECT COUNT(*)::int AS count FROM payments WHERE user_id = $1`, [req.params.userId]);
+      const [{ count: cardCount }] = await query(`SELECT COUNT(*)::int AS count FROM my_cards WHERE user_id = $1`, [req.params.userId]);
+      const [{ count: txnCount }] = await query(`SELECT COUNT(*)::int AS count FROM wallet_transactions WHERE user_id = $1`, [req.params.userId]);
+      if (groupCount > 0 || paymentCount > 0 || cardCount > 0 || txnCount > 0) {
+        return res.status(400).json({
+          error: "Ce membre a un historique de tontines, cartes ou transactions. Utilisez le bannissement plutôt que la suppression pour préserver l'audit financier."
+        });
+      }
+
+      await query(`DELETE FROM messages WHERE user_id = $1`, [req.params.userId]);
+      await query(`DELETE FROM users WHERE id = $1`, [req.params.userId]);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

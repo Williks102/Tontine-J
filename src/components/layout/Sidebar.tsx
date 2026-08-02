@@ -25,7 +25,7 @@ export const Sidebar: React.FC = () => {
   const adminTabs = [
     { id: 'accueil', label: 'Accueil', icon: Home },
     { id: 'admin_activite', label: 'Aperçu', icon: BarChart3 },
-    { id: 'macarte', label: 'Ma Carte', icon: LayoutGrid },
+    { id: 'macarte', label: 'Cartes', icon: LayoutGrid },
     { id: 'admin_tontines', label: 'Groupes', icon: PiggyBank },
     { id: 'admin_utilisateurs', label: 'Utilisateurs', icon: Users },
     { id: 'admin_parrainages', label: 'Parrainages', icon: Share2 },

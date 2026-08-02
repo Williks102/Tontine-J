@@ -30,7 +30,7 @@ export const Header: React.FC<{ viewingMember?: any; setViewingMember?: (val: an
     if (activeTab === 'admin_activite') return 'Tableau de bord';
     if (activeTab === 'admin_utilisateurs') return 'Membres';
     if (activeTab === 'admin_tontines') return 'Groupes';
-    if (activeTab === 'macarte') return 'Ma Carte';
+    if (activeTab === 'macarte') return user?.role === 'admin' ? 'Cartes' : 'Ma Carte';
     if (activeTab === 'support') return 'Support';
     if (activeTab === 'paiements') return 'Paiements';
     if (activeTab === 'groupes') return 'Groupes';

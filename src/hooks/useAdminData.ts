@@ -134,6 +134,56 @@ export const useAdminData = () => {
     return false;
   };
 
+  const updateGroup = async (groupId: string, groupData: { name?: string; stake?: number; maxMembers?: number; durationDays?: number }) => {
+    try {
+      const res = await authFetch(`/api/admin/groups/${groupId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(groupData),
+      });
+      if (res.ok) {
+        fetchTontines();
+        return { success: true };
+      }
+      const data = await res.json();
+      return { success: false, error: data.error };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
+
+  const updateUser = async (userId: string, userData: { firstName?: string; phone?: string; email?: string; balance?: number }) => {
+    try {
+      const res = await authFetch(`/api/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+      if (res.ok) {
+        fetchUsers();
+        return { success: true };
+      }
+      const data = await res.json();
+      return { success: false, error: data.error };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      const res = await authFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchUsers();
+        return { success: true };
+      }
+      const data = await res.json();
+      return { success: false, error: data.error };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
+
   return {
     stats,
     users,
@@ -148,5 +198,8 @@ export const useAdminData = () => {
     banUser,
     createGroup,
     deleteGroup,
+    updateGroup,
+    updateUser,
+    deleteUser,
   };
 };

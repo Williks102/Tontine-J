@@ -201,20 +201,27 @@ RETURNS JSON AS $$
 DECLARE
   v_users BIGINT; v_active BIGINT; v_open BIGINT; v_total BIGINT;
   v_circulating NUMERIC; v_tontine_com NUMERIC; v_card_com NUMERIC;
+  v_banned BIGINT; v_cards_active BIGINT; v_cards_completed BIGINT;
 BEGIN
   SELECT COUNT(*) INTO v_users FROM users;
+  SELECT COUNT(*) INTO v_banned FROM users WHERE is_banned = TRUE;
   SELECT COUNT(*) INTO v_active FROM groups WHERE status = 'active';
   SELECT COUNT(*) INTO v_open FROM groups WHERE status = 'open';
   SELECT COUNT(*) INTO v_total FROM groups WHERE status != 'deleted';
+  SELECT COUNT(*) INTO v_cards_active FROM my_cards WHERE status != 'completed';
+  SELECT COUNT(*) INTO v_cards_completed FROM my_cards WHERE status = 'completed';
   SELECT COALESCE(SUM(gm.positions * g.stake), 0) INTO v_circulating
     FROM group_members gm JOIN groups g ON gm.group_id = g.id WHERE g.status != 'deleted';
   SELECT COALESCE(SUM(commission), 0) INTO v_tontine_com FROM payments WHERE status = 'completed';
   SELECT COALESCE(SUM(amount), 0) INTO v_card_com FROM card_payments WHERE is_commission = TRUE;
   RETURN json_build_object(
     'totalUsers', v_users,
+    'bannedUsersCount', v_banned,
     'activeGroupsCount', v_active,
     'openGroupsCount', v_open,
     'totalGroupsCount', v_total,
+    'activeCardsCount', v_cards_active,
+    'completedCardsCount', v_cards_completed,
     'totalVolumeCirculating', v_circulating,
     'tontineCommissions', v_tontine_com,
     'cardCommissions', v_card_com,
@@ -252,6 +259,66 @@ BEGIN
       JOIN groups g ON p.group_id = g.id
       JOIN users u ON p.user_id = u.id
       WHERE p.commission > 0
+    ) t
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
+-- RPC : Activité récente de la plateforme (admin - vue "Aperçu")
+-- Fusionne plusieurs types d'événements (pas seulement les
+-- utilisateurs) : adhésions à des groupes, créations de groupes,
+-- créations de cartes et cotisations sur cartes.
+-- ============================================================
+CREATE OR REPLACE FUNCTION rpc_recent_activity(p_limit INTEGER DEFAULT 15)
+RETURNS JSON AS $$
+BEGIN
+  RETURN (
+    SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
+    FROM (
+      (
+        SELECT 'group_join' AS type, gm.id,
+          u.first_name AS "userFirstName", u.selfie_url AS "userSelfie",
+          g.name AS detail, gm.positions AS positions,
+          gm.joined_at AS timestamp
+        FROM group_members gm
+        JOIN users u ON u.id = gm.user_id
+        JOIN groups g ON g.id = gm.group_id
+        ORDER BY gm.joined_at DESC LIMIT p_limit
+      )
+      UNION ALL
+      (
+        SELECT 'group_created' AS type, g.id,
+          NULL::TEXT AS "userFirstName", NULL::TEXT AS "userSelfie",
+          g.name AS detail, NULL::INTEGER AS positions,
+          g.created_at AS timestamp
+        FROM groups g
+        WHERE g.status != 'deleted'
+        ORDER BY g.created_at DESC LIMIT p_limit
+      )
+      UNION ALL
+      (
+        SELECT 'card_created' AS type, mc.id,
+          u.first_name AS "userFirstName", u.selfie_url AS "userSelfie",
+          mc.title AS detail, NULL::INTEGER AS positions,
+          TO_CHAR(mc.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp
+        FROM my_cards mc
+        JOIN users u ON u.id = mc.user_id
+        ORDER BY mc.created_at DESC LIMIT p_limit
+      )
+      UNION ALL
+      (
+        SELECT 'card_payment' AS type, cp.id,
+          u.first_name AS "userFirstName", u.selfie_url AS "userSelfie",
+          mc.title AS detail, NULL::INTEGER AS positions,
+          TO_CHAR(cp.paid_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp
+        FROM card_payments cp
+        JOIN my_cards mc ON mc.id = cp.card_id
+        JOIN users u ON u.id = mc.user_id
+        ORDER BY cp.paid_at DESC LIMIT p_limit
+      )
+      ORDER BY timestamp DESC
+      LIMIT p_limit
     ) t
   );
 END;
