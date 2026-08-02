@@ -76,7 +76,7 @@ export const Dashboard: React.FC = () => {
           <p className="text-base font-black text-purple-950 mt-1">{userGroups.length} grp</p>
         </div>
         <div className="bg-gradient-to-br from-[#FEFBE8] to-[#FEF08A] border border-[#FEF08A] p-3 rounded-2xl flex flex-col justify-between">
-          <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider leading-none">En Cours</span>
+          <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider leading-none">Complètes</span>
           <p className="text-base font-black text-amber-950 mt-1">{activeTontinesCount} grp</p>
         </div>
         <div className="bg-gradient-to-br from-[#ECFDF5] to-[#A7F3D0] border border-[#A7F3D0] p-3 rounded-2xl flex flex-col justify-between">

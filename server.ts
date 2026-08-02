@@ -23,6 +23,16 @@ const MIN_PASSWORD_LENGTH = 6;
 // Détecte si un identifiant de connexion est un e-mail ou un numéro de téléphone
 const isEmailLike = (identifier: string) => identifier.includes('@');
 
+// Date de prise prévisionnelle : chaque position dans la file d'attente reçoit
+// la cagnotte après (ordre × durée d'un cycle) depuis la création du groupe.
+// C'est une estimation, pas une garantie contractuelle — l'app n'a pas encore
+// de calendrier de cycles réel (voir AUDIT.md).
+const computePayoutDate = (groupCreatedAt: string, payoutOrder: number | null, durationDays: number): string | null => {
+  if (!payoutOrder) return null;
+  const base = new Date(groupCreatedAt).getTime();
+  return new Date(base + payoutOrder * durationDays * 24 * 60 * 60 * 1000).toISOString();
+};
+
 const getUserIdFromRequest = (req: any): string | null => {
   const authHeader = req.headers['authorization'] as string;
   if (authHeader?.startsWith('Bearer ')) {
@@ -416,12 +426,13 @@ async function startServer() {
     const memberRows = await query(
       `SELECT gm.*, u.first_name AS user_first_name, u.phone AS user_phone, u.selfie_url AS user_selfie_url
        FROM group_members gm JOIN users u ON u.id = gm.user_id
-       WHERE gm.group_id = $1`,
+       WHERE gm.group_id = $1 ORDER BY gm.payout_order`,
       [req.params.id]
     );
     const members = memberRows.map((m: any) => camelizeKeys({
       id: m.id, group_id: m.group_id, user_id: m.user_id, positions: m.positions,
       payout_order: m.payout_order, joined_at: m.joined_at,
+      payout_date: computePayoutDate(group.created_at, m.payout_order, group.duration_days),
       firstName: m.user_first_name, phone: m.user_phone, selfieUrl: m.user_selfie_url
     }));
     res.json({ ...camelizeKeys(group), members });
@@ -532,12 +543,15 @@ async function startServer() {
     }
 
     const memberships = await query(
-      `SELECT gm.positions, gm.joined_at, g.*
+      `SELECT gm.positions, gm.joined_at, gm.payout_order, g.*
        FROM group_members gm JOIN groups g ON g.id = gm.group_id
        WHERE gm.user_id = $1`,
       [userId]
     );
-    res.json(memberships.map((m: any) => camelizeKeys(m)));
+    res.json(memberships.map((m: any) => camelizeKeys({
+      ...m,
+      payout_date: computePayoutDate(m.created_at, m.payout_order, m.duration_days)
+    })));
   });
 
   // --- Support ---
@@ -668,6 +682,7 @@ async function startServer() {
         const members = memberRows.map((m: any) => camelizeKeys({
           id: m.id, group_id: m.group_id, user_id: m.user_id, positions: m.positions,
           payout_order: m.payout_order, joined_at: m.joined_at,
+          payout_date: computePayoutDate(g.created_at, m.payout_order, g.duration_days),
           firstName: m.user_first_name, phone: m.user_phone, selfieUrl: m.user_selfie_url
         }));
         const payments = paymentRows.map((p: any) => camelizeKeys({
