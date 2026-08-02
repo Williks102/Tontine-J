@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  PiggyBank, Plus, Trash2, Users, Check, Calendar, 
+import {
+  PiggyBank, Plus, Trash2, Pencil, Users, Check, Calendar,
   TrendingUp, Coins, Search, Filter, UserMinus, UserPlus, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -12,11 +12,15 @@ import { authFetch } from '../../hooks/useAuth';
 
 export const AdminTontines: React.FC = () => {
   const { user } = useAuthContext();
-  const { tontines, fetchTontines, createGroup, deleteGroup } = useAdminData();
-  
+  const { tontines, fetchTontines, createGroup, deleteGroup, updateGroup } = useAdminData();
+
   // Custom view states
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [formData, setFormData] = useState({ name: '', stake: 5000, maxMembers: 10, durationDays: 30 });
+  const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [editFormData, setEditFormData] = useState({ name: '', stake: 0, maxMembers: 0, durationDays: 0 });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'active' | 'completed'>('all');
@@ -64,6 +68,33 @@ export const AdminTontines: React.FC = () => {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openEditGroup = (group: any) => {
+    setEditError(null);
+    setEditFormData({
+      name: group.name,
+      stake: group.stake,
+      maxMembers: group.maxMembers,
+      durationDays: group.durationDays,
+    });
+    setEditingGroup(group);
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroup || !editFormData.name.trim()) return;
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const res = await updateGroup(editingGroup.id, editFormData);
+      if (res.success) {
+        setEditingGroup(null);
+      } else {
+        setEditError(res.error || "Erreur lors de la modification.");
+      }
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -363,8 +394,17 @@ export const AdminTontines: React.FC = () => {
                       <p className="text-[10px] font-bold text-gray-400">Montant de la caisse du tour</p>
                     </div>
 
+                    {/* Edit group core fields */}
+                    <button
+                      onClick={() => openEditGroup(group)}
+                      className="p-2.5 text-[#3B0764] hover:bg-violet-50 rounded-xl transition-all cursor-pointer border border-violet-100 bg-white shadow-sm"
+                      title="Éditer le groupe"
+                    >
+                      <Pencil size={16} />
+                    </button>
+
                     {/* Delete group totally */}
-                    <button 
+                    <button
                       onClick={() => handleDeleteGroup(group.id, group.name)}
                       className="p-2.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-all cursor-pointer border border-rose-100 bg-white shadow-sm"
                       title="Supprimer totalement le groupe"
@@ -617,6 +657,73 @@ export const AdminTontines: React.FC = () => {
             <div className="flex gap-3">
                <Button variant="ghost" className="flex-1 rounded-xl" onClick={() => setIsCreatingGroup(false)}>Fermer</Button>
                <Button className="flex-1 bg-[#3B0764] text-white rounded-xl" disabled={loading} onClick={handleCreate}>Valider</Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Group Editor Modal Overlay */}
+      {editingGroup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-sm rounded-[2rem] p-8 space-y-6 shadow-2xl font-sans"
+          >
+            <h3 className="text-xl font-black text-center text-gray-900 flex items-center justify-center gap-2">
+              <Pencil className="text-[#3B0764]" size={22} />
+              Éditer {editingGroup.name}
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Nom du groupe</label>
+                <input
+                  className="w-full bg-gray-50 p-4 rounded-xl text-sm font-bold outline-none border border-transparent focus:border-[#3B0764]/20"
+                  value={editFormData.name}
+                  onChange={e => setEditFormData({ ...editFormData, name: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Mise unitaire (F)</label>
+                  <input
+                    type="number"
+                    className="w-full bg-gray-50 p-4 rounded-xl text-sm font-bold outline-none border border-transparent focus:border-[#3B0764]/20"
+                    value={isNaN(editFormData.stake) ? '' : editFormData.stake}
+                    onChange={e => setEditFormData({ ...editFormData, stake: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Nbre places max</label>
+                  <input
+                    type="number"
+                    className="w-full bg-gray-50 p-4 rounded-xl text-sm font-bold outline-none border border-transparent focus:border-[#3B0764]/20"
+                    value={isNaN(editFormData.maxMembers) ? '' : editFormData.maxMembers}
+                    onChange={e => setEditFormData({ ...editFormData, maxMembers: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Durée d&apos;un tour (jours)</label>
+                <input
+                  type="number"
+                  className="w-full bg-gray-50 p-4 rounded-xl text-sm font-bold outline-none border border-transparent focus:border-[#3B0764]/20"
+                  value={isNaN(editFormData.durationDays) ? '' : editFormData.durationDays}
+                  onChange={e => setEditFormData({ ...editFormData, durationDays: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+
+              {editError && <p className="text-xs text-red-500 font-bold">{editError}</p>}
+            </div>
+
+            <div className="flex gap-3">
+               <Button variant="ghost" className="flex-1 rounded-xl" disabled={editLoading} onClick={() => setEditingGroup(null)}>Fermer</Button>
+               <Button className="flex-1 bg-[#3B0764] text-white rounded-xl" disabled={editLoading} onClick={handleUpdateGroup}>
+                 {editLoading ? 'Enregistrement...' : 'Enregistrer'}
+               </Button>
             </div>
           </motion.div>
         </div>
