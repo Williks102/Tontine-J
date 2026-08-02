@@ -237,7 +237,7 @@ export const AdminDashboard: React.FC<{ setViewingMember?: (val: any) => void }>
         <div className="grid grid-cols-2 gap-2.5">
           <button onClick={() => setActiveTab('admin_tontines')} className="text-left bg-gradient-to-br from-[#FEFBE8] to-[#FEF08A] border border-[#FEF08A] p-3.5 rounded-2xl flex flex-col justify-between shadow-sm cursor-pointer">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-black uppercase text-amber-700 tracking-wider leading-none">En Cours</span>
+              <span className="text-[9px] font-black uppercase text-amber-700 tracking-wider leading-none">Complètes</span>
               <TrendingUp size={14} className="text-amber-600" />
             </div>
             <p className="text-lg font-black text-[#713F12] mt-1.5">{s.activeGroupsCount || 0}</p>
