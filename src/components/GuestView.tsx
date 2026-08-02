@@ -504,7 +504,7 @@ export default function GuestView({
                             }
                           }}
                         >
-                          Acheter une place
+                          Adhérer
                         </button>
                       )}
                     </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers, CreditCard, Wallet, X, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Users, User as UserIcon, Flame, ShoppingBag, Clock, Heart, ShieldCheck, CheckCircle2, History, TrendingUp, CalendarDays, Layers, CreditCard, Wallet, X, ChevronRight, ArrowLeft, Hash, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useGroups } from '../hooks/useGroups';
 import { useNavigation } from '../context/NavigationContext';
@@ -261,7 +261,7 @@ export const Groups: React.FC = () => {
                         ) : (
                           <Button className="w-full py-3.5 text-xs font-black uppercase rounded-xl flex justify-center items-center gap-1.5"
                             onClick={() => { setIsJoiningGroup(g); setPositionsToJoin(1); }}>
-                            <UserIcon size={14} strokeWidth={2.5} /> Acheter une place
+                            <UserIcon size={14} strokeWidth={2.5} /> Adhérer
                           </Button>
                         )}
                       </div>
@@ -320,6 +320,16 @@ export const Groups: React.FC = () => {
                           <span className="text-[11px] text-gray-500 flex items-center gap-1">
                             <CalendarDays size={11} /> Rejoint le {g.joinedAt ? new Date(g.joinedAt).toLocaleDateString('fr-FR') : '—'}
                           </span>
+                          {g.payoutOrder && (
+                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                              <Hash size={11} /> Ordre de prise #{g.payoutOrder}
+                            </span>
+                          )}
+                          {g.payoutDate && (
+                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                              <Target size={11} /> Prise prévue le {new Date(g.payoutDate).toLocaleDateString('fr-FR')}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -454,6 +464,22 @@ export const Groups: React.FC = () => {
                         <CreditCard size={24} className="text-[#3B0764]/30" />
                       </div>
 
+                      {/* Mon ordre de prise */}
+                      {myMembership?.payoutOrder && (
+                        <div className="bg-violet-50 rounded-2xl p-4 flex items-center justify-between border border-violet-100">
+                          <div>
+                            <p className="text-[10px] font-black text-[#3B0764]/70 uppercase">Mon ordre de prise</p>
+                            <p className="text-xl font-black text-[#3B0764]">#{myMembership.payoutOrder}</p>
+                            {myMembership.payoutDate && (
+                              <p className="text-[10px] text-gray-500 font-bold mt-0.5">
+                                Prise prévue le {new Date(myMembership.payoutDate).toLocaleDateString('fr-FR')} (estimation)
+                              </p>
+                            )}
+                          </div>
+                          <Target size={24} className="text-[#3B0764]/30" />
+                        </div>
+                      )}
+
                       {/* Bouton payer */}
                       {canPay && (
                         <div className="space-y-2">
@@ -498,7 +524,11 @@ export const Groups: React.FC = () => {
                                 />
                                 <div className="flex-1">
                                   <p className="text-xs font-black text-gray-800">{m.firstName || 'Membre'}</p>
-                                  <p className="text-[10px] text-gray-400">{m.positions || 1} bras</p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {m.positions || 1} bras
+                                    {m.payoutOrder && ` · Ordre #${m.payoutOrder}`}
+                                    {m.payoutDate && ` · Prise le ${new Date(m.payoutDate).toLocaleDateString('fr-FR')}`}
+                                  </p>
                                 </div>
                               </div>
                             ))}
@@ -520,8 +550,8 @@ export const Groups: React.FC = () => {
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
             className="bg-white w-full max-w-sm rounded-[2rem] p-8 space-y-6 shadow-2xl">
             <div className="text-center space-y-2">
-              <h3 className="text-xl font-black text-gray-800">Rejoindre {isJoiningGroup.name}</h3>
-              <p className="text-xs text-gray-500 font-medium">Combien de positions (bras) acheter ?</p>
+              <h3 className="text-xl font-black text-gray-800">Adhérer à {isJoiningGroup.name}</h3>
+              <p className="text-xs text-gray-500 font-medium">Combien de positions (bras) souhaitez-vous prendre ?</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -538,7 +568,7 @@ export const Groups: React.FC = () => {
 
             <div className="bg-gray-50 p-4 rounded-2xl space-y-2">
               <div className="flex justify-between text-[11px] font-bold text-gray-500 uppercase">
-                <span>Prix de la place</span>
+                <span>Montant de l'adhésion</span>
                 <span>{(isJoiningGroup.stake * positionsToJoin).toLocaleString()} F</span>
               </div>
               <div className="flex justify-between text-[11px] font-bold text-gray-500 uppercase">
@@ -558,7 +588,7 @@ export const Groups: React.FC = () => {
                 Fermer
               </Button>
               <Button className="flex-1 rounded-xl" disabled={loading} onClick={handleConfirmJoin}>
-                {loading ? 'Achat...' : 'Confirmer'}
+                {loading ? 'Adhésion...' : 'Confirmer'}
               </Button>
             </div>
           </motion.div>

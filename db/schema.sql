@@ -125,13 +125,19 @@ DECLARE
   v_max INTEGER;
   v_count INTEGER;
   v_commission INTEGER;
+  v_existing_members INTEGER;
+  v_payout_order INTEGER;
 BEGIN
   SELECT stake, max_members, current_members_count
   INTO v_stake, v_max, v_count
   FROM groups WHERE id = p_group_id FOR UPDATE;
 
-  INSERT INTO group_members (id, group_id, user_id, positions, joined_at)
-  VALUES (p_member_id, p_group_id, p_user_id, p_positions, p_joined_at);
+  -- Ordre de prise = ordre d'adhésion (1er inscrit = ordre 1, etc.)
+  SELECT COUNT(*) INTO v_existing_members FROM group_members WHERE group_id = p_group_id;
+  v_payout_order := v_existing_members + 1;
+
+  INSERT INTO group_members (id, group_id, user_id, positions, payout_order, joined_at)
+  VALUES (p_member_id, p_group_id, p_user_id, p_positions, v_payout_order, p_joined_at);
 
   UPDATE groups
   SET current_members_count = current_members_count + p_positions
