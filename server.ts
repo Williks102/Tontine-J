@@ -1,24 +1,31 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import crypto from "crypto";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
-import { query, camelizeKeys, toPublicUser } from "./lib/db";
+import { query, camelizeKeys, toPublicUser, withTransaction } from "./lib/db";
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || "tontine-pro-secret-key-123456";
-if (JWT_SECRET === "tontine-pro-secret-key-123456") {
-  console.warn("⚠️  Avertissement de Sécurité: Configurez JWT_SECRET dans votre .env");
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 16) {
+  throw new Error(
+    "JWT_SECRET manquant ou trop court. Configurez une valeur d'au moins 16 caractères dans votre .env."
+  );
 }
 
-const genId = () => Math.random().toString(36).substr(2, 9);
+const genId = () => crypto.randomBytes(6).toString('hex');
 const normalizePhone = (phone: string) => phone.replace(/[\s\(\)\-\.]/g, '');
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
+const SELFIE_DATA_URL_REGEX = /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/]+=*$/;
+const MAX_SELFIE_LENGTH = 3_000_000; // ~2.2 Mo binaire une fois décodé
 
 // Détecte si un identifiant de connexion est un e-mail ou un numéro de téléphone
 const isEmailLike = (identifier: string) => identifier.includes('@');
@@ -145,12 +152,69 @@ async function startServer() {
 
   await seedIfNeeded();
 
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  // Derrière le proxy de Render (ou tout reverse proxy) : nécessaire pour
+  // que req.ip reflète le vrai client, pas le proxy — sinon le rate
+  // limiting ci-dessous limiterait tout le monde ensemble.
+  app.set('trust proxy', 1);
+
+  app.use(helmet({
+    // Le frontend n'est pas encore audité pour une CSP stricte (styles
+    // inline dynamiques pour les barres de progression, etc.) ; activer
+    // une CSP par défaut casserait silencieusement l'affichage.
+    contentSecurityPolicy: false,
+    // Désactivé car l'app charge des images cross-origin (Unsplash,
+    // ui-avatars.com) sans en contrôler les en-têtes CORP.
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  const allowedOrigins = (process.env.APP_URL || '')
+    .split(',').map(o => o.trim()).filter(Boolean);
+  app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins } : { origin: false }));
+
+  // 5mb couvre largement un selfie compressé côté client (~800px, JPEG
+  // 70%, généralement < 500 Ko en base64) tout en bornant l'abus.
+  app.use(express.json({ limit: '5mb' }));
+
+  // Anti brute-force sur les routes d'authentification.
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+  });
+  app.use(["/api/login", "/api/register"], authLimiter);
+
+  // Garde-fou général contre l'abus/DoS sur le reste de l'API.
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Trop de requêtes. Réessayez dans quelques minutes." },
+  });
+  app.use("/api", apiLimiter);
 
   app.use((req, _res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
     next();
+  });
+
+  // Un compte banni garde un JWT valide jusqu'à son expiration (7 jours) —
+  // /api/login vérifie is_banned à la connexion, mais rien ne le
+  // revérifiait sur les requêtes suivantes avec un token déjà émis.
+  app.use(async (req, res, next) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return next();
+    try {
+      const [u] = await query(`SELECT is_banned FROM users WHERE id = $1`, [userId]);
+      if (u?.is_banned) {
+        return res.status(403).json({ error: "Votre compte a été banni. Veuillez contacter l'administration." });
+      }
+      next();
+    } catch {
+      next();
+    }
   });
 
   // --- Ma Carte ---
@@ -165,7 +229,7 @@ async function startServer() {
         return camelizeKeys({ ...card, payments });
       }));
       res.json(result);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/my-cards", async (req, res) => {
@@ -182,7 +246,7 @@ async function startServer() {
         [cardId, userId, sanitizedTitle, sanitizedAmount, sanitizedDays]
       );
       res.json({ id: cardId, userId, title: sanitizedTitle, dailyAmount: sanitizedAmount, totalDays: sanitizedDays, payments: [] });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/my-cards/:id/pay", async (req, res) => {
@@ -210,28 +274,32 @@ async function startServer() {
         });
       }
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!userData || (userData.balance || 0) < card.daily_amount) {
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [card.daily_amount, userId]
+        );
+        if (!updated) return null;
+
+        const paymentId = `pay_${genId()}`;
+        await tx(
+          `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, FALSE)`,
+          [paymentId, cardId, dayIndex, card.daily_amount]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'card_payment', -card.daily_amount,
+            `Cotisation carte — Jour ${dayIndex + 1}`, 'completed', new Date().toISOString()]
+        );
+        return updated.balance;
+      });
+
+      if (newBalance === null) {
         return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
-
-      const paymentId = `pay_${genId()}`;
-      await query(
-        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission) VALUES ($1, $2, $3, $4, FALSE)`,
-        [paymentId, cardId, dayIndex, card.daily_amount]
-      );
-
-      const newBalance = (userData.balance || 0) - card.daily_amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'card_payment', -card.daily_amount,
-          `Cotisation carte — Jour ${dayIndex + 1}`, 'completed', new Date().toISOString()]
-      );
-
       res.json({ success: true, newBalance });
-    } catch (e: any) { res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Paiement déjà effectué ou erreur serveur" }); }
   });
 
   app.post("/api/my-cards/:id/withdraw", async (req, res) => {
@@ -258,23 +326,34 @@ async function startServer() {
       const payout = total - commission;
       const now = new Date().toISOString();
 
-      await query(
-        `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission, paid_at) VALUES ($1, $2, -1, $3, TRUE, $4)`,
-        [`pay_${genId()}`, cardId, commission, now]
-      );
+      const newBalance = await withTransaction(async (tx) => {
+        // Verrouille la ligne et re-vérifie le statut pour empêcher un
+        // double retrait déclenché par deux requêtes concurrentes.
+        const [lockedCard] = await tx(`SELECT status FROM my_cards WHERE id = $1 FOR UPDATE`, [cardId]);
+        if (!lockedCard || lockedCard.status === 'completed') return null;
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      const newBalance = (userData?.balance || 0) + payout;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'card_withdrawal', payout, `Retrait carte : ${card.title}`, 'completed', now]
-      );
-      await query(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
+        await tx(
+          `INSERT INTO card_payments (id, card_id, day_index, amount, is_commission, paid_at) VALUES ($1, $2, -1, $3, TRUE, $4)`,
+          [`pay_${genId()}`, cardId, commission, now]
+        );
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance + $1 WHERE id = $2 RETURNING balance`,
+          [payout, userId]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'card_withdrawal', payout, `Retrait carte : ${card.title}`, 'completed', now]
+        );
+        await tx(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
+        return updated.balance;
+      });
 
+      if (newBalance === null) {
+        return res.status(400).json({ error: "Cette carte a déjà été clôturée." });
+      }
       res.json({ success: true, payout, commission, newBalance });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.delete("/api/my-cards/:id", async (req, res) => {
@@ -287,7 +366,7 @@ async function startServer() {
       await query(`DELETE FROM card_payments WHERE card_id = $1`, [cardId]);
       await query(`DELETE FROM my_cards WHERE id = $1`, [cardId]);
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Wallet ---
@@ -302,7 +381,7 @@ async function startServer() {
         [userId]
       );
       res.json({ balance: user?.balance || 0, transactions: transactions.map(camelizeKeys) });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/wallet/recharge", async (req, res) => {
@@ -313,18 +392,23 @@ async function startServer() {
     if (!amount || amount < 500) return res.status(400).json({ error: "Montant minimum: 500 FCFA" });
     if (amount > 1000000) return res.status(400).json({ error: "Montant maximum: 1 000 000 FCFA" });
     try {
-      const [user] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-      const newBalance = (user.balance || 0) + amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'recharge', amount,
-          `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`, 'completed', new Date().toISOString()]
-      );
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance + $1 WHERE id = $2 RETURNING balance`,
+          [amount, userId]
+        );
+        if (!updated) return null;
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'recharge', amount,
+            `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`, 'completed', new Date().toISOString()]
+        );
+        return updated.balance;
+      });
+      if (newBalance === null) return res.status(404).json({ error: "Utilisateur non trouvé" });
       res.json({ success: true, newBalance, amount });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Auth / Utilisateurs ---
@@ -343,6 +427,14 @@ async function startServer() {
     }
     if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
       return res.status(400).json({ error: `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.` });
+    }
+    if (selfieUrl) {
+      if (typeof selfieUrl !== 'string' || selfieUrl.length > MAX_SELFIE_LENGTH) {
+        return res.status(400).json({ error: "Photo de profil trop volumineuse." });
+      }
+      if (!SELFIE_DATA_URL_REGEX.test(selfieUrl)) {
+        return res.status(400).json({ error: "Format de photo de profil invalide." });
+      }
     }
 
     const id = genId();
@@ -365,8 +457,7 @@ async function startServer() {
         const [referrer] = await query(`SELECT id, first_name FROM users WHERE referral_code ILIKE $1`, [refCode]);
         if (referrer) {
           validatedReferredBy = referrer.id;
-          const [ref] = await query(`SELECT balance FROM users WHERE id = $1`, [referrer.id]);
-          await query(`UPDATE users SET balance = $1 WHERE id = $2`, [(ref?.balance || 0) + 500, referrer.id]);
+          await query(`UPDATE users SET balance = balance + 500 WHERE id = $1`, [referrer.id]);
         }
       }
 
@@ -419,7 +510,7 @@ async function startServer() {
       const [user] = await query(`SELECT * FROM users WHERE id = $1`, [userId]);
       if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
       res.json(toPublicUser(user));
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/global/stats", async (_req, res) => {
@@ -427,7 +518,8 @@ async function startServer() {
       const [row] = await query(`SELECT rpc_platform_stats() AS stats`);
       res.json(row.stats);
     } catch (err: any) {
-      res.status(500).json({ error: "Erreur lors du calcul des statistiques globales: " + err.message });
+      console.error(err);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
@@ -465,7 +557,7 @@ async function startServer() {
           bonus: 500 + (r.groupCount > 0 ? 1500 : 0)
         }))
       });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Groupes ---
@@ -476,6 +568,7 @@ async function startServer() {
   });
 
   app.get("/api/groups/:id", async (req, res) => {
+    if (!getUserIdFromRequest(req)) return res.status(401).json({ error: "Non autorisé. Connexion requise." });
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [req.params.id]);
     if (!group) return res.status(404).json({ error: "Groupe introuvable" });
     const memberRows = await query(
@@ -494,9 +587,16 @@ async function startServer() {
   });
 
   app.post("/api/groups/join", async (req, res) => {
-    const { groupId, positions } = req.body;
+    const { groupId } = req.body;
+    const positions = parseInt(String(req.body.positions));
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: "Non autorisé. Jeton requis." });
+    if (!groupId || typeof groupId !== 'string') {
+      return res.status(400).json({ error: "Groupe invalide." });
+    }
+    if (!Number.isInteger(positions) || positions < 1 || positions > 10) {
+      return res.status(400).json({ error: "Nombre de positions invalide (1 à 10)." });
+    }
 
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [groupId]);
     if (!group || group.status !== 'open') {
@@ -513,33 +613,49 @@ async function startServer() {
     }
 
     const joinedAt = new Date().toISOString();
+    let newBalance: number;
     try {
-      await query(`SELECT rpc_join_group($1, $2, $3, $4, $5, $6)`, [
-        genId(), groupId, userId, positions, joinedAt, `pay_group_${genId()}`
-      ]);
-    } catch (error: any) {
-      return res.status(400).json({ error: error.message });
-    }
+      // rpc_join_group (verrouillage + insertion) et le débit du solde sont
+      // exécutés dans la même transaction Postgres : si le solde est
+      // insuffisant au moment du débit atomique, l'adhésion créée par le RPC
+      // est elle aussi annulée (ROLLBACK), pas de groupe rejoint sans paiement.
+      newBalance = await withTransaction(async (tx) => {
+        await tx(`SELECT rpc_join_group($1, $2, $3, $4, $5, $6)`, [
+          genId(), groupId, userId, positions, joinedAt, `pay_group_${genId()}`
+        ]);
 
-    const newBalance = (userData.balance || 0) - totalCost;
-    await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-    await query(
-      `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [`txn_${genId()}`, userId, 'group_join', -totalCost,
-        `Adhésion tontine: ${group.name} (${positions} bras)`, 'completed', joinedAt]
-    );
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [totalCost, userId]
+        );
+        if (!updated) throw new Error("INSUFFICIENT_BALANCE");
 
-    // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
-    const [joiningUser] = await query(`SELECT referred_by FROM users WHERE id = $1`, [userId]);
-    if (joiningUser?.referred_by) {
-      const [{ count }] = await query(`SELECT COUNT(*)::int AS count FROM group_members WHERE user_id = $1`, [userId]);
-      if (count === 1) {
-        const [referrer] = await query(`SELECT balance FROM users WHERE id = $1`, [joiningUser.referred_by]);
-        if (referrer) {
-          await query(`UPDATE users SET balance = $1 WHERE id = $2`, [(referrer.balance || 0) + 1500, joiningUser.referred_by]);
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'group_join', -totalCost,
+            `Adhésion tontine: ${group.name} (${positions} bras)`, 'completed', joinedAt]
+        );
+
+        // Bonus parrain actif : +1 500 FCFA au parrain lors du 1er groupe rejoint par le filleul
+        const [joiningUser] = await tx(`SELECT referred_by FROM users WHERE id = $1`, [userId]);
+        if (joiningUser?.referred_by) {
+          const [{ count }] = await tx(`SELECT COUNT(*)::int AS count FROM group_members WHERE user_id = $1`, [userId]);
+          if (count === 1) {
+            await tx(`UPDATE users SET balance = balance + 1500 WHERE id = $1`, [joiningUser.referred_by]);
+          }
         }
+
+        return updated.balance;
+      });
+    } catch (error: any) {
+      if (error.message === "INSUFFICIENT_BALANCE") {
+        return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
+      // rpc_join_group ne lève que des exceptions métier volontaires
+      // (ex: "Vous êtes déjà membre de ce groupe."), sûres à afficher telles
+      // quelles — pas une fuite d'erreur interne.
+      return res.status(400).json({ error: error.message });
     }
 
     res.json({ success: true, newBalance });
@@ -562,27 +678,32 @@ async function startServer() {
       const amount = group.stake * (membership.positions || 1);
       const commission = Math.round(amount * 0.1);
 
-      const [userData] = await query(`SELECT balance FROM users WHERE id = $1`, [userId]);
-      if (!userData || (userData.balance || 0) < amount) {
+      const now = new Date().toISOString();
+      const newBalance = await withTransaction(async (tx) => {
+        const [updated] = await tx(
+          `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING balance`,
+          [amount, userId]
+        );
+        if (!updated) return null;
+
+        await tx(
+          `INSERT INTO payments (id, group_id, user_id, amount, commission, status, timestamp)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`pay_period_${genId()}`, groupId, userId, amount, commission, 'completed', now]
+        );
+        await tx(
+          `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`txn_${genId()}`, userId, 'group_payment', -amount, `Cotisation tontine: ${group.name}`, 'completed', now]
+        );
+        return updated.balance;
+      });
+
+      if (newBalance === null) {
         return res.status(400).json({ error: "Solde insuffisant. Rechargez votre compte.", code: "INSUFFICIENT_BALANCE" });
       }
-
-      const now = new Date().toISOString();
-      const newBalance = (userData.balance || 0) - amount;
-      await query(`UPDATE users SET balance = $1 WHERE id = $2`, [newBalance, userId]);
-      await query(
-        `INSERT INTO payments (id, group_id, user_id, amount, commission, status, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`pay_period_${genId()}`, groupId, userId, amount, commission, 'completed', now]
-      );
-      await query(
-        `INSERT INTO wallet_transactions (id, user_id, type, amount, description, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [`txn_${genId()}`, userId, 'group_payment', -amount, `Cotisation tontine: ${group.name}`, 'completed', now]
-      );
-
       res.json({ success: true, newBalance, amount });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/users/:userId/groups", async (req, res) => {
@@ -647,7 +768,8 @@ async function startServer() {
       );
       res.json({ id, userId: finalUserId, type, content, isAdmin: finalIsAdmin, timestamp });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de l'envoi du message." });
     }
   });
 
@@ -666,7 +788,8 @@ async function startServer() {
         recentActivity: activityRow.activity || []
       });
     } catch (error: any) {
-      res.status(500).json({ error: "Erreur serveur statistiques: " + error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
@@ -680,7 +803,8 @@ async function startServer() {
       );
       res.json({ id, name, stake, maxMembers, durationDays, status: 'open' });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de la création du groupe." });
     }
   });
 
@@ -707,7 +831,8 @@ async function startServer() {
       );
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la modification du groupe." });
     }
   });
 
@@ -716,7 +841,8 @@ async function startServer() {
       await query(`UPDATE groups SET status = 'deleted' WHERE id = $1`, [req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de la suppression du groupe." });
     }
   });
 
@@ -726,7 +852,8 @@ async function startServer() {
       await query(`UPDATE users SET is_banned = $1 WHERE id = $2`, [!!isBanned, req.params.userId]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors du changement de statut du membre." });
     }
   });
 
@@ -764,7 +891,8 @@ async function startServer() {
       );
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la modification du membre." });
     }
   });
 
@@ -790,7 +918,8 @@ async function startServer() {
       await query(`DELETE FROM users WHERE id = $1`, [req.params.userId]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la suppression du membre." });
     }
   });
 
@@ -845,15 +974,19 @@ async function startServer() {
       }));
       res.json(result);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
   app.post("/api/admin/groups/:id/members", async (req, res) => {
     const groupId = req.params.id;
-    const { userId, positions } = req.body;
+    const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "L'identifiant du membre (userId) est requis." });
-    const numPositions = parseInt(String(positions)) || 1;
+    const numPositions = req.body.positions === undefined ? 1 : parseInt(String(req.body.positions));
+    if (!Number.isInteger(numPositions) || numPositions < 1 || numPositions > 10) {
+      return res.status(400).json({ error: "Nombre de positions invalide (1 à 10)." });
+    }
 
     const [group] = await query(`SELECT * FROM groups WHERE id = $1`, [groupId]);
     if (!group || group.status === 'deleted') return res.status(404).json({ error: "Groupe introuvable." });
@@ -872,7 +1005,8 @@ async function startServer() {
       ]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      // Même remarque que /api/groups/join : message métier volontaire.
+      res.status(400).json({ error: error.message });
     }
   });
 
@@ -881,7 +1015,8 @@ async function startServer() {
       await query(`SELECT rpc_remove_member($1, $2)`, [req.params.memberId, req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors du retrait du membre." });
     }
   });
 
@@ -891,7 +1026,8 @@ async function startServer() {
       await query(`UPDATE groups SET status = $1 WHERE id = $2`, [status, req.params.id]);
       res.json({ success: true, status });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors du changement de statut." });
     }
   });
 
@@ -926,7 +1062,7 @@ async function startServer() {
         });
       }));
       res.json(result);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/admin/cards", async (req, res) => {
@@ -946,7 +1082,8 @@ async function startServer() {
       );
       res.json({ id: cardId, userId, title: sanitizedTitle, dailyAmount: sanitizedAmount, totalDays: sanitizedDays, payments: [] });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la création de la carte." });
     }
   });
 
@@ -956,7 +1093,8 @@ async function startServer() {
       await query(`DELETE FROM my_cards WHERE id = $1`, [req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la suppression de la carte." });
     }
   });
 
@@ -995,7 +1133,7 @@ async function startServer() {
       const topReferrers = [...referrerMap.values()].sort((a, b) => b.referralCount - a.referralCount);
 
       res.json({ relations, topReferrers });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Admin Paramètres & Logs ---
@@ -1006,7 +1144,7 @@ async function startServer() {
       const settingsMap: Record<string, string> = {};
       for (const row of rows) settingsMap[row.key] = row.value;
       res.json(settingsMap);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/admin/settings", async (req: any, res) => {
@@ -1031,7 +1169,7 @@ async function startServer() {
         );
       }
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/admin/logs", async (_req, res) => {
@@ -1076,7 +1214,7 @@ async function startServer() {
         );
       }
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Vite / Fichiers statiques ---
@@ -1092,6 +1230,18 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
+
+  // Filet de sécurité final : intercepte les erreurs non gérées par une
+  // route (ex: corps JSON trop volumineux rejeté par express.json()) pour
+  // ne jamais renvoyer la page d'erreur HTML par défaut d'Express, qui
+  // inclut la stack trace complète et les chemins de fichiers du serveur.
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error(err);
+    if (res.headersSent) return;
+    const status = err?.status || err?.statusCode || 500;
+    const message = status === 413 ? "Requête trop volumineuse." : "Erreur serveur. Réessayez plus tard.";
+    res.status(status).json({ error: message });
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
