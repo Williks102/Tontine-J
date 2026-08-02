@@ -1,6 +1,7 @@
 -- ============================================================
--- Tontine Pro - Schéma PostgreSQL pour Supabase
--- Coller et exécuter dans le SQL Editor de Supabase une seule fois
+-- Tontine Pro - Schéma PostgreSQL (Neon)
+-- À exécuter une seule fois sur votre base Neon, via l'éditeur SQL
+-- de la console Neon ou : psql "$DATABASE_URL" -f db/schema.sql
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS users (
@@ -100,41 +101,13 @@ CREATE TABLE IF NOT EXISTS system_logs (
   timestamp TEXT
 );
 
--- ============================================================
--- Migration : Authentification par e-mail + suppression du mot de
--- passe en clair. Sûr à ré-exécuter (idempotent) sur une base déjà
--- créée avec l'ancien schéma.
--- ============================================================
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
-
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password') THEN
-    ALTER TABLE users DROP COLUMN password;
-  END IF;
-END $$;
-
-CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users (email) WHERE email IS NOT NULL;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_or_email_required') THEN
-    ALTER TABLE users ADD CONSTRAINT users_phone_or_email_required CHECK (phone IS NOT NULL OR email IS NOT NULL);
-  END IF;
-END $$;
-
--- ============================================================
--- Row Level Security (le service_role la contourne automatiquement)
--- ============================================================
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE my_cards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE card_payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE system_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE system_logs ENABLE ROW LEVEL SECURITY;
+-- Note sur les droits d'accès : contrairement à Supabase (rôles
+-- anon/authenticated/service_role + RLS), le serveur Express se connecte
+-- ici avec un unique rôle propriétaire des tables. Le contrôle d'accès est
+-- donc entièrement assuré par l'API Express (voir server.ts), pas par
+-- Postgres. RLS n'apporterait aucune protection supplémentaire tant que
+-- l'application se connecte avec le rôle propriétaire (qui contourne RLS
+-- par défaut), donc elle n'est pas activée ici.
 
 -- ============================================================
 -- RPC : Rejoindre un groupe (transaction atomique)
@@ -173,7 +146,7 @@ BEGIN
     UPDATE groups SET status = 'active' WHERE id = p_group_id;
   END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- ============================================================
 -- RPC : Retirer un membre d'un groupe (transaction atomique)
@@ -212,7 +185,7 @@ BEGIN
 
   DELETE FROM payments WHERE group_id = p_group_id AND user_id = v_user_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- ============================================================
 -- RPC : Statistiques globales de la plateforme
@@ -242,7 +215,7 @@ BEGIN
     'totalCommissions', v_tontine_com + v_card_com
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- ============================================================
 -- RPC : Historique des commissions (admin stats)
@@ -276,4 +249,4 @@ BEGIN
     ) t
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
