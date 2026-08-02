@@ -85,7 +85,6 @@ function InnerApp() {
   }, [user, activeTab, setActiveTab]);
 
   // --- Landing & Auth specific local UI states ---
-  const [smsCode, setSmsCode] = useState('');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isLandingMenuOpen, setIsLandingMenuOpen] = useState(false);
   const [selectedLandingCategory, setSelectedLandingCategory] = useState<any>(null);
@@ -176,8 +175,6 @@ function InnerApp() {
     setIsSubmitting(false);
     if (!res.success) {
       alert(res.error || "Erreur d'inscription.");
-    } else {
-      setSmsCode('');
     }
   };
 
@@ -192,8 +189,6 @@ function InnerApp() {
       setRegStep={setRegStep}
       regData={regData}
       setRegData={setRegData}
-      smsCode={smsCode}
-      setSmsCode={setSmsCode}
       cameraError={cameraError}
       setCameraError={setCameraError}
       loginIdentifier={loginIdentifier}
