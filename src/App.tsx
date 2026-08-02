@@ -175,6 +175,9 @@ function InnerApp() {
     setIsSubmitting(false);
     if (!res.success) {
       alert(res.error || "Erreur d'inscription.");
+    } else {
+      // Après inscription, direction le catalogue des tontines plutôt que le tableau de bord vide
+      setActiveTab('accueil');
     }
   };
 

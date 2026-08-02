@@ -360,23 +360,32 @@ export default function GuestView({
               Rejoignez l'application de tontine digitale n°1. Épargnez en groupe en toute de confiance pour la rentrée, l'alimentation, un capital ou l'immobilier, avec retraits sécurisés par Mobile Money.
             </p>
 
-            {/* Quick Access CTAs */}
-            <div className="flex flex-col sm:flex-row gap-4 px-4 pt-2 max-w-sm mx-auto">
-              <button 
-                onClick={() => { setIsRegistering(true); setIsLoggingIn(false); setRegStep(1); }}
-                className="w-full bg-amber-400 hover:bg-amber-500 text-[#20013B] text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl shadow-xl shadow-amber-400/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border-0"
-              >
-                <UserPlus size={16} strokeWidth={3} />
-                Créer mon compte libre
-              </button>
-              <button 
-                onClick={() => { setIsLoggingIn(true); setIsRegistering(false); }}
-                className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <ChevronRight size={16} strokeWidth={3} />
-                Se connecter
-              </button>
-            </div>
+            {/* Quick Access CTAs (visiteurs uniquement) */}
+            {!user && (
+              <div className="flex flex-col sm:flex-row gap-4 px-4 pt-2 max-w-sm mx-auto">
+                <button
+                  onClick={() => { setIsRegistering(true); setIsLoggingIn(false); setRegStep(1); }}
+                  className="w-full bg-amber-400 hover:bg-amber-500 text-[#20013B] text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl shadow-xl shadow-amber-400/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border-0"
+                >
+                  <UserPlus size={16} strokeWidth={3} />
+                  Créer mon compte libre
+                </button>
+                <button
+                  onClick={() => { setIsLoggingIn(true); setIsRegistering(false); }}
+                  className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-black uppercase tracking-wider py-4 px-6 rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ChevronRight size={16} strokeWidth={3} />
+                  Se connecter
+                </button>
+              </div>
+            )}
+            {user && (
+              <div className="px-4 pt-2 max-w-sm mx-auto">
+                <p className="text-xs text-purple-200 font-bold">
+                  Content de vous revoir, {user.firstName} 👋
+                </p>
+              </div>
+            )}
 
             {/* Micro Trust Stats */}
             <div className="grid grid-cols-3 gap-2.5 pt-6 max-w-md mx-auto border-t border-white/5 text-center">
