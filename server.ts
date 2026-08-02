@@ -3,6 +3,8 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import crypto from "crypto";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
@@ -148,8 +150,46 @@ async function startServer() {
 
   await seedIfNeeded();
 
-  app.use(cors());
+  // Derrière le proxy de Render (ou tout reverse proxy) : nécessaire pour
+  // que req.ip reflète le vrai client, pas le proxy — sinon le rate
+  // limiting ci-dessous limiterait tout le monde ensemble.
+  app.set('trust proxy', 1);
+
+  app.use(helmet({
+    // Le frontend n'est pas encore audité pour une CSP stricte (styles
+    // inline dynamiques pour les barres de progression, etc.) ; activer
+    // une CSP par défaut casserait silencieusement l'affichage.
+    contentSecurityPolicy: false,
+    // Désactivé car l'app charge des images cross-origin (Unsplash,
+    // ui-avatars.com) sans en contrôler les en-têtes CORP.
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  const allowedOrigins = (process.env.APP_URL || '')
+    .split(',').map(o => o.trim()).filter(Boolean);
+  app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins } : { origin: false }));
+
   app.use(express.json({ limit: '10mb' }));
+
+  // Anti brute-force sur les routes d'authentification.
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+  });
+  app.use(["/api/login", "/api/register"], authLimiter);
+
+  // Garde-fou général contre l'abus/DoS sur le reste de l'API.
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Trop de requêtes. Réessayez dans quelques minutes." },
+  });
+  app.use("/api", apiLimiter);
 
   app.use((req, _res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
