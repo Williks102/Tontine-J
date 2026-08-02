@@ -229,7 +229,7 @@ async function startServer() {
         return camelizeKeys({ ...card, payments });
       }));
       res.json(result);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/my-cards", async (req, res) => {
@@ -246,7 +246,7 @@ async function startServer() {
         [cardId, userId, sanitizedTitle, sanitizedAmount, sanitizedDays]
       );
       res.json({ id: cardId, userId, title: sanitizedTitle, dailyAmount: sanitizedAmount, totalDays: sanitizedDays, payments: [] });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/my-cards/:id/pay", async (req, res) => {
@@ -338,7 +338,7 @@ async function startServer() {
       await query(`UPDATE my_cards SET status = 'completed' WHERE id = $1`, [cardId]);
 
       res.json({ success: true, payout, commission, newBalance });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.delete("/api/my-cards/:id", async (req, res) => {
@@ -351,7 +351,7 @@ async function startServer() {
       await query(`DELETE FROM card_payments WHERE card_id = $1`, [cardId]);
       await query(`DELETE FROM my_cards WHERE id = $1`, [cardId]);
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Wallet ---
@@ -366,7 +366,7 @@ async function startServer() {
         [userId]
       );
       res.json({ balance: user?.balance || 0, transactions: transactions.map(camelizeKeys) });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/wallet/recharge", async (req, res) => {
@@ -388,7 +388,7 @@ async function startServer() {
           `Recharge via Mobile Money${phone ? ` (${phone})` : ''}`, 'completed', new Date().toISOString()]
       );
       res.json({ success: true, newBalance, amount });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Auth / Utilisateurs ---
@@ -491,7 +491,7 @@ async function startServer() {
       const [user] = await query(`SELECT * FROM users WHERE id = $1`, [userId]);
       if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
       res.json(toPublicUser(user));
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/global/stats", async (_req, res) => {
@@ -499,7 +499,8 @@ async function startServer() {
       const [row] = await query(`SELECT rpc_platform_stats() AS stats`);
       res.json(row.stats);
     } catch (err: any) {
-      res.status(500).json({ error: "Erreur lors du calcul des statistiques globales: " + err.message });
+      console.error(err);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
@@ -537,7 +538,7 @@ async function startServer() {
           bonus: 500 + (r.groupCount > 0 ? 1500 : 0)
         }))
       });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Groupes ---
@@ -597,6 +598,9 @@ async function startServer() {
         genId(), groupId, userId, positions, joinedAt, `pay_group_${genId()}`
       ]);
     } catch (error: any) {
+      // rpc_join_group ne lève que des exceptions métier volontaires
+      // (ex: "Vous êtes déjà membre de ce groupe."), sûres à afficher telles
+      // quelles — pas une fuite d'erreur interne.
       return res.status(400).json({ error: error.message });
     }
 
@@ -661,7 +665,7 @@ async function startServer() {
       );
 
       res.json({ success: true, newBalance, amount });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/users/:userId/groups", async (req, res) => {
@@ -726,7 +730,8 @@ async function startServer() {
       );
       res.json({ id, userId: finalUserId, type, content, isAdmin: finalIsAdmin, timestamp });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de l'envoi du message." });
     }
   });
 
@@ -745,7 +750,8 @@ async function startServer() {
         recentActivity: activityRow.activity || []
       });
     } catch (error: any) {
-      res.status(500).json({ error: "Erreur serveur statistiques: " + error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
@@ -759,7 +765,8 @@ async function startServer() {
       );
       res.json({ id, name, stake, maxMembers, durationDays, status: 'open' });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de la création du groupe." });
     }
   });
 
@@ -786,7 +793,8 @@ async function startServer() {
       );
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la modification du groupe." });
     }
   });
 
@@ -795,7 +803,8 @@ async function startServer() {
       await query(`UPDATE groups SET status = 'deleted' WHERE id = $1`, [req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors de la suppression du groupe." });
     }
   });
 
@@ -805,7 +814,8 @@ async function startServer() {
       await query(`UPDATE users SET is_banned = $1 WHERE id = $2`, [!!isBanned, req.params.userId]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error(error);
+      res.status(400).json({ error: "Erreur lors du changement de statut du membre." });
     }
   });
 
@@ -843,7 +853,8 @@ async function startServer() {
       );
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la modification du membre." });
     }
   });
 
@@ -869,7 +880,8 @@ async function startServer() {
       await query(`DELETE FROM users WHERE id = $1`, [req.params.userId]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la suppression du membre." });
     }
   });
 
@@ -924,7 +936,8 @@ async function startServer() {
       }));
       res.json(result);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." });
     }
   });
 
@@ -954,7 +967,8 @@ async function startServer() {
       ]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      // Même remarque que /api/groups/join : message métier volontaire.
+      res.status(400).json({ error: error.message });
     }
   });
 
@@ -963,7 +977,8 @@ async function startServer() {
       await query(`SELECT rpc_remove_member($1, $2)`, [req.params.memberId, req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors du retrait du membre." });
     }
   });
 
@@ -973,7 +988,8 @@ async function startServer() {
       await query(`UPDATE groups SET status = $1 WHERE id = $2`, [status, req.params.id]);
       res.json({ success: true, status });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors du changement de statut." });
     }
   });
 
@@ -1008,7 +1024,7 @@ async function startServer() {
         });
       }));
       res.json(result);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/admin/cards", async (req, res) => {
@@ -1028,7 +1044,8 @@ async function startServer() {
       );
       res.json({ id: cardId, userId, title: sanitizedTitle, dailyAmount: sanitizedAmount, totalDays: sanitizedDays, payments: [] });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la création de la carte." });
     }
   });
 
@@ -1038,7 +1055,8 @@ async function startServer() {
       await query(`DELETE FROM my_cards WHERE id = $1`, [req.params.id]);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Erreur lors de la suppression de la carte." });
     }
   });
 
@@ -1077,7 +1095,7 @@ async function startServer() {
       const topReferrers = [...referrerMap.values()].sort((a, b) => b.referralCount - a.referralCount);
 
       res.json({ relations, topReferrers });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Admin Paramètres & Logs ---
@@ -1088,7 +1106,7 @@ async function startServer() {
       const settingsMap: Record<string, string> = {};
       for (const row of rows) settingsMap[row.key] = row.value;
       res.json(settingsMap);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.post("/api/admin/settings", async (req: any, res) => {
@@ -1113,7 +1131,7 @@ async function startServer() {
         );
       }
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   app.get("/api/admin/logs", async (_req, res) => {
@@ -1158,7 +1176,7 @@ async function startServer() {
         );
       }
       res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { console.error(e); res.status(500).json({ error: "Erreur serveur. Réessayez plus tard." }); }
   });
 
   // --- Vite / Fichiers statiques ---
@@ -1174,6 +1192,18 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
+
+  // Filet de sécurité final : intercepte les erreurs non gérées par une
+  // route (ex: corps JSON trop volumineux rejeté par express.json()) pour
+  // ne jamais renvoyer la page d'erreur HTML par défaut d'Express, qui
+  // inclut la stack trace complète et les chemins de fichiers du serveur.
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error(err);
+    if (res.headersSent) return;
+    const status = err?.status || err?.statusCode || 500;
+    const message = status === 413 ? "Requête trop volumineuse." : "Erreur serveur. Réessayez plus tard.";
+    res.status(status).json({ error: message });
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
